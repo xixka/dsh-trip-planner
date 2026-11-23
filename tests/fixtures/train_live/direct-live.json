@@ -1,0 +1,12 @@
+{
+  "tool": "get-tickets",
+  "sample_date": "2026-08-01",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"train_no\": \"internal-G1\", \"start_train_code\": \"G1\", \"start_date\": \"2026-08-15\", \"start_time\": \"06:00\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"10:30\", \"lishi\": \"04:30\", \"from_station\": \"北京南\", \"to_station\": \"上海虹桥\", \"from_station_telecode\": \"VNP\", \"to_station_telecode\": \"AOH\", \"prices\": [{\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"0\", \"price\": 553, \"discount\": null}], \"dw_flag\": []}, {\"train_no\": \"internal-G3\", \"start_train_code\": \"G3\", \"start_date\": \"2026-08-15\", \"start_time\": \"07:00\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"11:30\", \"lishi\": \"04:30\", \"from_station\": \"北京南\", \"to_station\": \"上海虹桥\", \"from_station_telecode\": \"VNP\", \"to_station_telecode\": \"AOH\", \"prices\": [{\"seat_name\": \"一等座\", \"short\": \"zy\", \"seat_type_code\": \"M\", \"num\": \"2\", \"price\": 933, \"discount\": null}, {\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"12\", \"price\": 553, \"discount\": null}], \"dw_flag\": []}, {\"train_no\": \"internal-G5\", \"start_train_code\": \"G5\", \"start_date\": \"2026-08-15\", \"start_time\": \"08:00\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"12:30\", \"lishi\": \"04:30\", \"from_station\": \"北京南\", \"to_station\": \"上海虹桥\", \"from_station_telecode\": \"VNP\", \"to_station_telecode\": \"AOH\", \"prices\": [{\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"有\", \"price\": 553, \"discount\": null}], \"dw_flag\": []}]"
+      }
+    ]
+  }
+}

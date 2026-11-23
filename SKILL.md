@@ -174,8 +174,9 @@ Gates — these decide pass/fail and do not move into the reference file:
 - **`assets/plan.example.json` is the single source of truth for the plan's shape** —
   open it before writing a field; a wrong shape does not fail loudly — the renderers
   WARN and print an empty section.
-- **价格阶梯(CN order)**: 火车 — 12306/携程火车票公开价可直写; 机票 —
-  `flight_scan.py` 深链网格(携程/Trip.com/去哪儿,价格点开核对,计划先写
+- **价格阶梯(CN order)**: 火车 — 可选 `train_live.py` 的可靠 12306 `live` 可写实时价/
+  余票(带查询时间与购票以 12306 为准)，不可用时回退 12306/携程深链人工核对；样本不得冒充
+  live，非 live 不覆盖人工结果; 机票 — `flight_scan.py` 深链网格(携程/Trip.com/去哪儿,价格点开核对,计划先写
   "—, 点链接核对") + 备选航司/去哪儿作第二来源; 自驾 — 高德路径规划估时+油费/过路费
   区间,不猜价。`legs.note` names the sources with the as-of date; > 10 % disagreement
   prints as a band. "Price unverified" only when every source fails.
@@ -323,6 +324,9 @@ never stall silently or invent a script's output.
   transport scan: the plan shape and its two traps, the deep-link ladder, 高铁/机票/
   自驾 decisions, the fields every leg row records, the baggage walkthrough, and the
   exit criteria. SKILL.md Phase 3 is only the contract; this file is the procedure.
+- `references/train-live.md` — 可选 12306 实时铁路接入：固定上游 commit/许可/schema、
+  本地 stdio 安装器、直达/中转/经停、状态与优先级、`legs[].rail_live` 兼容合并、
+  离线 fixtures 和未实测边界。只有 Phase 3 需要该增强时阅读；未配置不影响深链流程。
 - `references/phase-4-days.md` — read at the start of Phase 4, before any city is
   planned: the city-agent contract (what every fan-out prompt must carry), the six
   per-city steps, the route_tools order (geocode → tz → sun → links → check → kml),
@@ -335,6 +339,10 @@ never stall silently or invent a script's output.
   only the contract; this file is the procedure.
 - `scripts/flight_scan.py` — 境内交通深链网格生成器(零依赖零网络): 机票(携程/Trip.com/
   去哪儿)+ 火车(携程火车票;12306 官方 App/小程序)深链,价格点开核对(`--help` 先行)。
+- `scripts/train_live.py` — 可选 12306 本地 stdio MCP 适配器(零第三方 Python 依赖):
+  直达席别票价/余票、直达无票时中转、按需经停；`live` 才可增量写 legs，完整深链兜底。
+  `scripts/train_live_install.py` 是独立显式安装器，固定 commit + npm lock + 审计补丁，
+  不全局或静默安装(`--help` 先行；接入细节见 references/train-live.md)。
 - `scripts/route_tools.py` — geocode stops(高德优先 `AMAP_KEY`/`--amap-key`,自动
   GCJ02→WGS84;百度回退 `BAIDU_MAP_AK`/`--baidu-ak`), distance-check clustering, emit
   per-hop map links and the trip KML; subcommands geocode / check (`--live` 用高德

@@ -1,0 +1,36 @@
+{
+  "trip": "旧计划兼容样例",
+  "lang": "zh",
+  "tz": "Asia/Shanghai",
+  "legs": [
+    {
+      "type": "high-speed rail",
+      "date": "2026-08-15",
+      "carrier": "人工 G9",
+      "from": "北京南",
+      "to": "上海虹桥",
+      "dep": "09:00",
+      "arr": "13:30",
+      "price": "人工核对 ¥600",
+      "bags": "人工行李备注",
+      "link": "https://example.org/manual-check",
+      "note": "人工结果不得覆盖",
+      "backup": "人工备选"
+    },
+    {
+      "type": "rail",
+      "date": "2026-08-16",
+      "carrier": "K99",
+      "from": "上海",
+      "to": "杭州",
+      "dep": "10:00",
+      "arr": "12:00",
+      "price": "人工保留",
+      "link": "https://example.org/other"
+    }
+  ],
+  "days": [],
+  "unverified": [
+    "保留旧未核验项"
+  ]
+}

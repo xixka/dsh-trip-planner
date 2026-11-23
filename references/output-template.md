@@ -29,7 +29,8 @@ to crash on it, and `legs` still prints every cell blank).
  "decisions": ["one line per decision made for the traveller — each vetoable", ...],
  "checklist": [{"item", "deadline", "price", "link", "link_text", "note"}],
  "legs":      [{"type", "date", "carrier", "from", "to", "dep", "arr", "price", "bags",
-                "link", "note", "backup"}],
+                "link", "note", "backup",                 // 旧字段保持稳定
+                "refund_change", "rail_live"}],           // 可选新增；旧渲染器忽略 rail_live
  "days": [{"date", "city", "label", "sun", "sun_stop", "day_map", "ribbon", "rain_alt",
            "late_cut", "walking_km", "travel_day", "tz",
            "timeline": [{"t", "what", "kind", "price", "note", "tag", "verify",
@@ -54,6 +55,11 @@ to crash on it, and `legs` still prints every cell blank).
   行、无 FX 字段**（the buffer line is a row like any other). `legs` rows spell the
   stations/airports `from`/`to` and the clock `dep`/`arr`; `backup` is a free-text
   second choice（价格拿不准就写 "—, 见 flight_scan 深链核对"）。
+- `rail_live` 是 `scripts/train_live.py` 的可选新增对象，含 `schema_version/status/source/
+  queried_at/timezone/travel_date/query_key/candidates/recommendations/links`；候选记录车次、
+  站名+站码、到发日期/时间、席别票价/余票，中转另含缓冲、同/异站与末段到达。只有 `live`
+  可把实时价/余票写进旧 `price/note` 并附“查询时参考，购票以 12306 为准”。人工匹配行只加
+  `rail_live`，旧字段不动；非 live/sample 不写计划。详见 references/train-live.md。
 - `checklist` (top level, `{item, deadline, price, link, link_text, note}`) is the
   merged, urgency-sorted list; the city block's `checklist_items` (same row shape,
   minus `link_text`) is its **input** — the assembler copies those rows into

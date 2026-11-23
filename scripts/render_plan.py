@@ -20,7 +20,8 @@ Schema (all keys optional except days[].date):
  "decisions": ["open-jaw into KIX out of NRT: refunds a backtracking day", ...],
  "checklist": [{"item","deadline","price","link","link_text","note"}],
  "legs":      [{"type","date","carrier","from","to","dep","arr","price","bags",
-                "link","note","backup"}],
+                "link","note","backup","refund_change",
+                "rail_live"}],  // optional additive object; legacy cells ignore it
  "days": [{"date","city","label","sun","day_map","ribbon","rain_alt","late_cut",
            // HONEST total: on-foot ×1.3 + strolls + in-venue. Either a number or
            // {"total": 7.5, "how": "on foot 2.1×1.3 + in-station 0.8 + in-venue 4.0"}

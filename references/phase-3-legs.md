@@ -41,6 +41,10 @@ empty section (they used to crash — the 云南 test lost both themed pages to 
 
 ## 城际（高铁/火车/汽车）
 
+- **可选实时增强**：需要出行日直达、席别余票/票价、中转或经停时，先读
+  `references/train-live.md`，再用 `scripts/train_live.py`。仅 schema 校验通过的 `live`
+  可增量写入 `legs[].rail_live`；样本、无票、无车次、未开售、超时、限流和畸形响应均不覆盖
+  人工结果。未配置本地 stdio MCP 或查询失败时，完整沿用以下 12306/携程深链，不阻塞 Phase 3。
 - Mode rule: 高铁 wins under ~5 h station-to-station（市中心到市中心，无机场
   buffer——沪杭 45 分、京沪 4.5 h、京西 6 h 是步行距离以外的门槛）；fly beyond
   that or where rail does not reach（新疆/西藏/海南跨海）；夜间动卧只对省预算的
@@ -49,7 +53,10 @@ empty section (they used to crash — the 云南 test lost both themed pages to 
   捆绑加速包。起售时间点、候补规则、学生票/儿童票规则按 12306 官方说明
   （data-sources.md §城际）；高峰期放票即抢，车次表写进 checklist 的 T-14/T-7 阶梯。
 - `trains.ctrip.com` 深链由 `flight_scan.py --rail` 生成，用于交付页的"点开核对"
-  入口；出票仍以 12306 为准。
+  入口；出票仍以 12306 为准。实时增强返回的携程链接也只用于核对，官方购票入口仅为 12306。
+- `train_live.py --transfer auto` 只在直达明确 `sold_out` 时查中转；有效空列表是
+  `no_service`，不是无票；`--`/空余票是未知，也不是无票。换乘缓冲、同/异站与末段到达必须
+  记录；经停仅按需查询。样本必须带样本日期，严禁写成 live。
 
 ## Driving legs（自驾段）
 
@@ -73,7 +80,9 @@ empty section (they used to crash — the 云南 test lost both themed pages to 
 **Record for every leg**: carrier/train number, date, dep/arr local times, price
 （人民币 + as-of date）, **checked-bag policy**（全服务航司 20 kg 托运常见；LCC
 按档位另购——4 段廉航是一笔真实预算行；高铁无行李重量限制，仅超规需托运）,
-refund/change class（机票舱位退改规则逐档写明）, deep link. Multi-leg trips get a
+refund/change class（机票舱位退改规则逐档写明）, deep link. 可选 `rail_live` 另存来源、
+北京时间查询时间、出行日期、站码、席别票价/余票和换乘信息；新增字段不改变旧渲染。
+Multi-leg trips get a
 **baggage walkthrough**: where the big bag physically is on every tour/venue day
 （一日游 = bag stays at hotel；景区寄存点写明；2 日游常是过夜包）. Output 1 pick +
 1 backup per leg.
@@ -82,10 +91,10 @@ refund/change class（机票舱位退改规则逐档写明）, deep link. Multi-
 
 - [ ] `legs`, `budget`, `checklist` follow `assets/plan.example.json` shapes (budget is
       a list of rows; legs use from / to / dep / arr).
-- [ ] Every pick and backup is priced in ≥ 2 sources, `legs.note` names
-      them with the as-of date (or says "single source — no browser"), a > 10 %
-      disagreement prints as a band；无票价的行写 "—, check the flight_scan deep
-      link" 而不是编数字。
+- [ ] 机票 pick/backup 以 ≥ 2 来源核价；铁路以 12306 为准，可靠 `live` 可单源展示并带
+      查询时间和“查询时参考，购票以 12306 为准”。`legs.note` names the sources with
+      the as-of date (or says "single source — no browser"), a > 10 % disagreement
+      prints as a band；无票价的行写 "—, check the flight_scan deep link" 而不是编数字。
 - [ ] 每一条 date-locked 高铁/机票行的起售/开售时间点在 checklist 上（T-14/T-7
       阶梯覆盖）。
 - [ ] Every leg row: carrier · date · dep / arr local · price + as-of ·

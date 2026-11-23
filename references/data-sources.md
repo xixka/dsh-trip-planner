@@ -8,7 +8,8 @@ deep link marked "verify on click". Statuses marked ✓ were live-tested 2026-08
 > 预警/汇率换算/签证）已整体移除，不存在任何境外选项或入口。地图链接只有高德/百度
 > （`route_tools links`，默认 amap，境内坐标自动 WGS84→GCJ02 纠偏）；地理编码走高德
 > （`AMAP_KEY`）+ 百度回退（`BAIDU_MAP_AK`）；日照为本地 NOAA 天文计算（零网络）；
-> 机票/火车价格经 `flight_scan.py` 深链由用户点开核对（国内无免钥票价 API，绝不猜价）；
+> 机票价格经 `flight_scan.py` 深链由用户点开核对（OTA 无免钥公开 fare API，绝不猜价）；
+> 火车可选 `train_live.py` 本地 MCP 查询，只有可靠 live 写实时价/余票，失败仍回深链人工核对；
 > 假日调休查国务院公告 + timor.tech；安全与天气预警查中央气象台/景区官方公告。
 
 ## 机票（境内航班）
@@ -141,6 +142,12 @@ No good keyless API exists — use browser + deep links; recommend neighborhoods
   经停）。Real-name rules（每人一张实名票、候补/起售时间点）、预售期与进站安检
   （电子票刷身份证闸机）按 12306 官方说明执行；高峰期放票节点见 phase-1-brief.md
   的行前阶梯。
+- **【可选增强·未实测】** `scripts/train_live.py` 通过固定版本的本地 `Joooook/12306-mcp`
+  stdio 服务查询直达、席别票价/余票、中转与经停。MIT 是上游软件许可，不等于 12306 官方
+  授权或 SLA。来源、北京时间查询时间、出行日、车次、到发站/时间、席别、票价、余票写入
+  `rail_live`；仅 live 可更新计划，sample 必须有样本日期，unavailable/unverified 保持未知。
+  安装、schema、状态表、换乘缓冲和 fixture 见 `references/train-live.md`。未配置/失败时
+  12306 + 携程深链完整保留，官方购票只走 12306。
 - 汽车票/城际巴士：携程汽车票、当地客运站公众号或小程序；地铁/市内公交接驳用
   高德/百度路线规划核对（上面的深链即可）。
 

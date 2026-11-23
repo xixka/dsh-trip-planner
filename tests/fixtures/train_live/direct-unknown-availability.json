@@ -1,0 +1,12 @@
+{
+  "tool": "get-tickets",
+  "sample_date": "2026-08-01",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"train_no\": \"internal-G7\", \"start_train_code\": \"G7\", \"start_date\": \"2026-08-15\", \"start_time\": \"09:00\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"13:30\", \"lishi\": \"04:30\", \"from_station\": \"北京南\", \"to_station\": \"上海虹桥\", \"from_station_telecode\": \"VNP\", \"to_station_telecode\": \"AOH\", \"prices\": [{\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"--\", \"price\": 553, \"discount\": null}], \"dw_flag\": []}]"
+      }
+    ]
+  }
+}

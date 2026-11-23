@@ -21,3 +21,10 @@ terms — including Amap/Baidu platform quotas and attribution rules — are hon
 scripts and printed on the rendered pages where required. See
 `references/data-sources.md`.（原 Nominatim / sunrise-sunset.org / Nager.Date /
 frankfurter.dev / Google Flights 等境外数据源已整体移除。）
+
+Optional `scripts/train_live.py` can start a user-installed `Joooook/12306-mcp` server;
+the upstream source and dependencies are **not bundled**. The installer pins commit
+`ff6439da6f63d7d72181abea4568abd69878c600` (`12306-mcp` 0.3.10), preserves its MIT
+license (Copyright (c) 2025 Jok), applies only the recorded Axios-timeout patch, and
+writes license/patch hashes into the local installation record. This licence does not
+assert 12306 endorsement or service terms. See `references/train-live.md`.
