@@ -43,6 +43,7 @@ Default checks (every plan, including the pre-2026-09 examples):
 """
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -89,6 +90,72 @@ def walk_strings(obj, path=""):
             yield from walk_strings(v, "{}[{}]".format(path, i))
 
 
+def validate_routes(plan):
+    statuses = {"ok", "partial", "no_route", "error", "degraded"}
+    sources = {"live", "cache", "estimated"}
+    for day_index, day in enumerate(plan.get("days") or [], 1):
+        if not isinstance(day, dict):
+            continue
+        for stop_index, stop in enumerate(day.get("stops") or [], 1):
+            if not isinstance(stop, dict) or "route" not in stop:
+                continue
+            where = "days[{}].stops[{}].route".format(day_index, stop_index)
+            route = stop["route"]
+            if not isinstance(route, dict):
+                fail(where + " must be an object")
+                continue
+            if route.get("mode") not in ("walk", "transit", "drive"):
+                fail(where + ".mode must be walk|transit|drive")
+            status = route.get("status")
+            if status not in statuses:
+                fail(where + ".status is missing/unknown")
+            if route.get("source") not in sources:
+                fail(where + ".source must be live|cache|estimated")
+            for field in ("distance_m", "duration_min"):
+                if field in route and (isinstance(route[field], bool)
+                                       or not isinstance(route[field], (int, float))
+                                       or not math.isfinite(route[field]) or route[field] <= 0):
+                    fail("{}.{} must be a positive number, not a zero placeholder".format(
+                        where, field))
+            if status == "ok" and not all(route.get(field) for field in ("distance_m", "duration_min")):
+                fail(where + " cannot be ok without distance_m and duration_min")
+            if status in ("ok", "partial") and not any(
+                    route.get(field) for field in ("distance_m", "duration_min", "segments", "path")):
+                fail(where + " has no usable route data")
+            if "path" in route:
+                path = route["path"]
+                if not isinstance(path, list) or len(path) < 2:
+                    fail(where + ".path must contain at least two WGS84 points")
+                    path = []
+                for point in path:
+                    valid = (isinstance(point, (list, tuple)) and len(point) == 2
+                             and all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                                     and math.isfinite(v) for v in point))
+                    if not valid or not (-90 <= point[0] <= 90 and -180 <= point[1] <= 180):
+                        fail(where + ".path contains an invalid [lat,lon] point")
+                        break
+            if "segments" in route and (
+                    not isinstance(route["segments"], list)
+                    or any(not isinstance(segment, dict) for segment in route["segments"])):
+                fail(where + ".segments must be a list of objects")
+            cost = route.get("cost")
+            if cost is not None and (
+                    not isinstance(cost, dict)
+                    or isinstance(cost.get("amount"), bool)
+                    or not isinstance(cost.get("amount"), (int, float))
+                    or not math.isfinite(cost.get("amount")) or cost.get("amount") < 0):
+                fail(where + ".cost.amount must be a non-negative explicit number")
+            if status in ("no_route", "error", "degraded") and not isinstance(route.get("error"), dict):
+                fail(where + " needs a classified error object")
+            for key in ("key", "api_key", "request_url"):
+                if key in route:
+                    fail(where + "." + key + " must never be persisted")
+            for _, text in walk_strings(route):
+                if "restapi.amap.com" in text:
+                    fail(where + " must not contain an AMap request URL")
+                    break
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -119,6 +186,8 @@ def main():
                 fail("day {} has no date".format(i))
             elif not d.get("timeline"):
                 fail("day {} ({}) has an empty timeline".format(i, d.get("date")))
+
+    validate_routes(plan)
 
     # ---- brief ----
     brief = plan.get("brief")

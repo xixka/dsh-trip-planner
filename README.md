@@ -104,7 +104,7 @@ python themes/qc.py trip-illustrated.html
 | `zine` | 杂志 |
 | `splash` | 闪屏 |
 
-成品页完全自包含：双击即开、离线可看，每一天可展开高德路线地图，不泄漏任何密钥。
+成品页完全自包含：双击即开、离线可看，每一天可展开高德路线地图，不泄漏任何密钥。可选写入真实路线后，地图按分段使用真实 path；缺失分段以不同线型注明“部分为直线示意”，无 path 时仍注明“站点连线示意”。
 
 ![高德路线地图](docs/screenshots/map-day2.jpg)
 
@@ -124,7 +124,7 @@ python themes/qc.py trip-illustrated.html
 
 | 环境变量 | 作用 | 缺失时的行为 |
 |---|---|---|
-| `AMAP_KEY` | 高德 Web 服务 key | 静态地图隐藏，时距用估算值 |
+| `AMAP_KEY` | 高德 Web 服务 key | 静态地图隐藏，真实路线不查询，时距用估算值 |
 | `BAIDU_MAP_AK` | 百度地理编码回退 | 跳过回退 |
 | `DASHSCOPE_API_KEY` / `SILICONFLOW_API_KEY` | 境内生图 | 图片走素材库或原生能力 |
 | `TRIP_MAP_PROVIDER` | 深链服务商，`amap`（默认）或 `baidu` | 用默认高德 |
@@ -138,14 +138,19 @@ python themes/qc.py trip-illustrated.html
 | 子命令 | 功能 |
 |---|---|
 | `geocode` | 高德/百度解析 stop 坐标并写回 |
-| `check --live` | 用高德实时时距替换估算值 |
+| `check --live` | 用高德实时时距替换估算值（旧行为不变，不写计划） |
+| `routes [--write]` | 可选真实步行/公交/驾车路线、分段和 WGS84 path；默认干跑 |
 | `links --write` | 为每一跳生成高德/百度导航深链 |
 | `kml` | 导出 Organic Maps 可用的离线 KML |
 | `sun` | 每日日出日落（本地天文模型，零网络） |
 | `ics` | 从预订清单生成带提醒的日历文件 |
 | `poi` | 高德周边 POI 搜索 |
 
+`routes` 只从环境变量或 `.env` 读取 `AMAP_KEY`，不提供密钥命令行参数。`--write` 原子写回到达站点的可选 `route` 字段并更新带 TTL 的 `routecache.json`；`--ttl 0` 禁用结构化缓存，`--strategy` 会进入缓存键。每跳独立失败，原交通描述、价格和深链不变。跨城公交在新结构化数据中标记降级，不把驾车路线冒充公交；旧 `check --live` 的驾车 ×1.25 折算保持不变。
+
 ```bash
+python scripts/route_tools.py routes plan.geo.json           # 只查询和打印，不写文件
+python scripts/route_tools.py routes plan.geo.json --write   # 显式写回路线与缓存
 python scripts/flight_scan.py --from 杭州 --to 青岛 --depart 2026-10-26 --nights 4   # 机票/火车票深链网格
 python scripts/plan_lint.py plan.geo.json --strict    # 渲染前内容门禁
 ```

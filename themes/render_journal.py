@@ -116,7 +116,8 @@ import urllib.parse
 
 from theme_common import (T, tag_pretty, lang, weekday, theme_name, init_lang,
                           asset_count, brief_titles, data_uri, export_js,
-                          export_prefix, day_embed_url, esc, et, ic, load_plan, sprite,
+                          export_prefix, day_embed_url, day_map_note_html, route_detail,
+                          esc, et, ic, load_plan, sprite,
                           Art, load_art, add_art_arg, short_dates, title_kick)
 
 HERE = pathlib.Path(__file__).parent
@@ -977,7 +978,8 @@ def render_rows(day, marg=None):
             f'<div class="en k-{kind}"><span class="mk" aria-hidden="true">{mark}</span>'
             f'<span class="en-t">{esc(r.get("t", ""))}</span>'
             f'<div class="en-x">{et(r.get("what", ""))}{est}{price} '
-            f'{render_tag(r.get("tag", ""))}{marg.get(n, "")}{nav}</div></div>')
+            f'{render_tag(r.get("tag", ""))}{marg.get(n, "")}{nav}'
+            f'{route_detail(r.get("_route"))}</div></div>')
     return "".join(rows)
 
 
@@ -993,7 +995,8 @@ def render_pocket(day, i):
     if not (links or embed):
         return ""
     emb = (f'<div class="m-embed" data-on="1">'
-           f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("map_title"))}"></div>'
+           f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("map_title"))}">'
+           f'{day_map_note_html(day)}</div>'
            if embed else "")
     stubs = f'<div class="stubs">{"".join(links)}</div>' if links else ""
     return (f'<details class="pocket"><summary>{ic("compass")} {esc(t("pocket").format(i=i))}'

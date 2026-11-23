@@ -79,7 +79,8 @@ import pathlib
 import urllib.parse
 
 from theme_common import (LUCIDE, T, Art, add_art_arg, asset_count, brief_titles,
-                          data_uri, day_embed_url, esc, export_js, export_prefix, init_lang,
+                          data_uri, day_embed_url, day_map_note_html, route_detail,
+                          esc, export_js, export_prefix, init_lang,
                           lang, load_art, load_plan, short_dates, theme_name, title_head,
                           title_kick)
 
@@ -241,7 +242,8 @@ def render_timeline(day):
                if r.get("link") else "")
         rows.append(
             f'<div class="tl-row {kind}"><div class="tl-t">{esc(r.get("t",""))}{est}</div>'
-            f'<div class="tl-what">{et(r.get("what",""))}{price_html} {chips}{nav}</div></div>')
+            f'<div class="tl-what">{et(r.get("what",""))}{price_html} {chips}{nav}'
+            f'{route_detail(r.get("_route"))}</div></div>')
     return "".join(rows)
 
 
@@ -291,7 +293,8 @@ def render_day(i, day):
         links.append(f'<a href="{esc(u)}" target="_blank" rel="noopener">{n}</a>')
     embed = day_embed_url(day)
     embed_html = (f'<div class="map-embed" data-src="{esc(embed)}" data-done="1">'
-                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}"></div>'
+                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}">'
+                  f'{day_map_note_html(day)}</div>'
                   if embed else "")
     summary_txt = esc(t("hop_summary").format(hop=T("hop.map"), n=len(links))
                       if links else t("route_map"))

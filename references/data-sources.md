@@ -131,6 +131,12 @@ No good keyless API exists — use browser + deep links; recommend neighborhoods
   百度 `https://map.baidu.com/dir/{A}/{B}@…&mode=transit`（浏览器操作即可）；交付给
   用户的跳转链接统一由 `route_tools links --provider amap|baidu` 生成（默认 amap，
   见 navigation.md）。
+- **【可选增强】** `route_tools routes --write` 使用高德 direction walking /
+  transit integrated / driving 的结构化响应，保存真实距离、时长、明确费用、
+  分段与 WGS84 path；cache 命中标 `cache`，失败标 `estimated`。它不查询或推断
+  票价库存，不替代运营商时刻与人工核验；跨城公交仍按 navigation.md 降级，
+  旧深链和 `check --live` 不变。CI 只用 `tests/fixtures/amap_routes.json`，
+  不访问真实服务。
 - **【境内可用·首选】** 12306 官网/App（12306.cn，实名账号；查询余票、时刻、
   经停）。Real-name rules（每人一张实名票、候补/起售时间点）、预售期与进站安检
   （电子票刷身份证闸机）按 12306 官方说明执行；高峰期放票节点见 phase-1-brief.md
