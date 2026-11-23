@@ -1,0 +1,8 @@
+{
+  "tool": "flights",
+  "error": {
+    "class": "rate_limited",
+    "status": "unavailable",
+    "retryable": false
+  }
+}

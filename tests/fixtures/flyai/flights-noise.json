@@ -1,0 +1,9 @@
+{
+  "tool": "flights",
+  "exit": {
+    "returncode": 0,
+    "stdout": "flyai (c) Alibaba Fliggy\n\n{\"demoMode\": false, \"systemMessage\": null, \"offers\": [{\"flightNo\": \"MU5117\", \"airline\": \"中国东方航空\", \"depAirport\": \"PVG\", \"depTerminal\": \"T1\", \"arrAirport\": \"KMG\", \"arrTerminal\": \"T1\", \"depDate\": \"2026-12-01\", \"depTime\": \"08:00\", \"arrDate\": \"2026-12-01\", \"arrTime\": \"11:25\", \"durationMinutes\": 205, \"cabin\": \"economy\", \"price\": 850, \"detailUrl\": \"https://www.fliggy.com/flight/detail?flightNo=MU5117&date=2026-12-01\"}]}\n\nDone in 0.8s\n",
+    "stderr": ""
+  },
+  "sample_date": "2026-11-01"
+}

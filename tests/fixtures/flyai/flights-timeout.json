@@ -1,0 +1,8 @@
+{
+  "tool": "flights",
+  "error": {
+    "class": "timeout",
+    "status": "unavailable",
+    "retryable": true
+  }
+}

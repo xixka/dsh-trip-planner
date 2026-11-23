@@ -79,6 +79,10 @@
    "rail_live": {
     "schema_version": 1,
     "status": "unverified"
+   },
+   "flight_live": {
+    "schema_version": 1,
+    "status": "unverified"
    }
   }
  ],
@@ -229,7 +233,10 @@
     {
      "name": "Property 1",
      "band": "PLACEHOLDER/night",
-     "link": "PLACEHOLDER — 携程/美团 dated search link with checkin/checkout"
+     "link": "PLACEHOLDER — 携程/美团 dated search link with checkin/checkout",
+     "flyai": {
+      "status": "unverified"
+     }
     }
    ]
   }

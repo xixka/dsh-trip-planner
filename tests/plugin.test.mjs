@@ -24,9 +24,9 @@ let failures = 0;
  * @param {string} [detail] - Extra context printed after the label.
  */
 function check(label, ok, detail = "") {
-	const line = `${ok ? "ok  " : "FAIL"}  ${label}${detail.length > 0 ? ` — ${detail}` : ""}`;
-	console.log(line);
-	if (!ok) failures += 1;
+        const line = `${ok ? "ok  " : "FAIL"}  ${label}${detail.length > 0 ? ` — ${detail}` : ""}`;
+        console.log(line);
+        if (!ok) failures += 1;
 }
 
 // --- 1. bundle manifest -----------------------------------------------------
@@ -76,9 +76,11 @@ const resources = [
 	"themes/render_glass2.py",
 	"themes/qc.py",
 	"assets/plan.example.json",
+	"references/flyai.md",
+	"scripts/flyai_provider.py",
 ];
 for (const rel of resources) {
-	check(`resource resolves: ${rel}`, await exists(rel));
+        check(`resource resolves: ${rel}`, await exists(rel));
 }
 
 // --- 5. the resources directory is what resourceBase points at --------------
@@ -94,10 +96,10 @@ process.exit(failures === 0 ? 0 : 1);
  * @returns Whether the path exists.
  */
 async function exists(rel) {
-	try {
-		await access(new URL(rel, root));
-		return true;
-	} catch {
-		return false;
-	}
+        try {
+                await access(new URL(rel, root));
+                return true;
+        } catch {
+                return false;
+        }
 }

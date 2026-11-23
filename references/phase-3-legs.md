@@ -106,3 +106,9 @@ Multi-leg trips get a
       提前办的行已入 checklist。
 - [ ] Multi-leg trips carry the baggage walkthrough (where the big bag is on every tour
       / venue day).
+- [ ] 可选增强（不作为 gate）：配置 flyai CLI + `FLYAI_API_KEY` 后可用
+      `scripts/flyai_provider.py flights --plan plan.geo.json --write` 增量写入
+      legs[]（仅 live，主/备候选，价格标"查询时参考价·单源"，行李/退改未实测保持
+      未实测）；无 CLI/key、体验模式或失败时 `flight_scan.py` 深链路径与人工核验
+      完全不变。酒店同理（`hotels` 子命令扩展 `hotels[].options[]`，口径不明不加总，
+      预算行不重复）。CLI 契约未实测，先跑 `doctor`，详见 `references/flyai.md`。

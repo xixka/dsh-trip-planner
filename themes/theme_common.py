@@ -33,6 +33,7 @@ __all__ = [
     "Art", "load_art", "add_art_arg", "short_dates", "export_prefix", "title_kick", "title_head",
     "add_asset_dir", "asset_dirs", "date_span", "BRIEF_TITLES", "BRIEF_TITLES_EN", "brief_titles",
     "STRINGS", "THEME_NAMES", "set_lang", "lang", "T", "tag_pretty", "theme_name", "weekday", "init_lang", "ASSETS",
+    "hotel_option_extra",
 ]
 
 HERE = pathlib.Path(__file__).parent
@@ -188,6 +189,69 @@ def et(s):
     return (t.replace("✈️", ic("plane")).replace("✈", ic("plane"))
              .replace("⚠️", ic("alert", "warn")).replace("⚠", ic("alert", "warn"))
              .replace("☀", ic("sunrise")).replace("🌇", ic("sunset")))
+
+
+def hotel_option_extra(option):
+    """Progressive enhancement line for hotels[].options[] entries that carry
+    provider data (the optional flyai merge, or a hand-written same-shape
+    "flyai" object). Returns a pre-escaped <span> — callers must NOT escape it
+    again — or "" for every legacy option, so themes rendering old plans stay
+    byte-identical. Fields the provider did not return stay absent: nothing is
+    invented, masked/unknown prices are never turned into numbers.
+
+    The optional object shape (all keys optional, see references/flyai.md):
+    {"room_type","beds","occupancy":{max_guests},"price":{amount_cny,status,
+    basis,taxes_fees},"breakfast","cancellation","rating","tier","queried_at",
+    "source"}
+    """
+    data = option.get("flyai") if isinstance(option, dict) else None
+    if not isinstance(data, dict) or not data:
+        return ""
+    parts = []
+    if data.get("room_type"):
+        parts.append(esc(data["room_type"]))
+    if data.get("beds"):
+        parts.append(esc(data["beds"]))
+    occupancy = data.get("occupancy")
+    if isinstance(occupancy, dict) and isinstance(occupancy.get("max_guests"), int):
+        parts.append("≤{}人".format(occupancy["max_guests"]))
+    price = data.get("price")
+    if isinstance(price, dict):
+        status = price.get("status")
+        if status == "ok" and isinstance(price.get("amount_cny"), (int, float)):
+            parts.append(esc("¥{:.0f}".format(price["amount_cny"])))
+        elif status == "masked":
+            parts.append("价格遮蔽,点开核对")
+        else:
+            parts.append("价格未知,点开核对")
+        basis = price.get("basis")
+        if basis and basis != "unknown":
+            parts.append(esc({"per-night-per-room": "每间·每晚",
+                              "per-night-per-person": "每人·每晚",
+                              "total-per-room": "每间·全程",
+                              "total-per-person": "每人·全程"}.get(basis, basis)))
+        elif status == "ok":
+            parts.append("口径未知,勿加总")
+        taxes = price.get("taxes_fees")
+        if taxes in ("included", "excluded"):
+            parts.append("税费" + ("含" if taxes == "included" else "未含"))
+    for key in ("breakfast", "cancellation"):
+        value = data.get(key)
+        if isinstance(value, str) and value and value != "unknown":
+            parts.append(esc(value))
+    rating = data.get("rating")
+    if isinstance(rating, (int, float)) and not isinstance(rating, bool):
+        parts.append("评分 {}".format(rating))
+    tier = data.get("tier")
+    if isinstance(tier, int) and tier >= 1:
+        parts.append("档位 {}".format(tier))
+    if data.get("queried_at"):
+        parts.append(esc(str(data["queried_at"]).replace("T", " ")[:16]) + " 查询")
+    if data.get("source"):
+        parts.append(esc(data["source"]) + " 参考价")
+    if not parts:
+        return ""
+    return f'<span class="dim flyai-note">{" · ".join(parts)}</span>'
 
 
 def add_asset_dir(path):

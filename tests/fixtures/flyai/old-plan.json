@@ -1,0 +1,68 @@
+{
+  "lang": "zh",
+  "trip": "乌镇 2 天 2 晚",
+  "legs": [
+    {
+      "type": "high-speed rail",
+      "date": "2026-12-01",
+      "carrier": "G7315",
+      "from": "上海虹桥",
+      "to": "桐乡",
+      "dep": "08:35",
+      "arr": "09:21",
+      "price": "—, 点链接核对",
+      "bags": "高铁无重量限制，超规需托运",
+      "link": "https://kyfw.12306.cn/otn/leftTicket/init",
+      "note": "人工核验行,不得被 live 覆盖",
+      "backup": "G7317 09:35 出发"
+    },
+    {
+      "type": "flight",
+      "date": "2026-12-01",
+      "carrier": "MU5117",
+      "from": "PVG",
+      "to": "KMG",
+      "dep": "08:00",
+      "arr": "11:25",
+      "price": "—, 点链接核对",
+      "bags": "PLACEHOLDER",
+      "link": "https://flights.ctrip.com/online/list/oneway-pvg-kmg?depdate=2026-12-01",
+      "note": "人工核验行,价格不得被覆盖",
+      "backup": "HO1121 09:30 出发"
+    }
+  ],
+  "hotels": [
+    {
+      "base": "乌镇 2 nights",
+      "area": "西栅景区内/镇区",
+      "why": "on the line you actually use · safe after dark",
+      "options": [
+        {
+          "name": "Property 1",
+          "band": "PLACEHOLDER/night",
+          "link": "https://hotels.ctrip.com/hotels/list?cityName=%E4%B9%8C%E9%95%87"
+        }
+      ]
+    }
+  ],
+  "budget": [
+    {
+      "cat": "flights",
+      "per_person": "PLACEHOLDER 估算",
+      "total": "PLACEHOLDER",
+      "note": "as of 2026-11-01 估算,勿与 live 参考价重复计"
+    },
+    {
+      "cat": "hotels",
+      "per_person": "PLACEHOLDER 估算",
+      "total": "PLACEHOLDER",
+      "note": "as of 2026-11-01 估算"
+    },
+    {
+      "cat": "buffer (10-15%)",
+      "per_person": "PLACEHOLDER",
+      "total": "PLACEHOLDER",
+      "note": "价格波动 + 旺季浮动"
+    }
+  ]
+}

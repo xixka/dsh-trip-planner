@@ -327,6 +327,9 @@ never stall silently or invent a script's output.
 - `references/train-live.md` — 可选 12306 实时铁路接入：固定上游 commit/许可/schema、
   本地 stdio 安装器、直达/中转/经停、状态与优先级、`legs[].rail_live` 兼容合并、
   离线 fixtures 和未实测边界。只有 Phase 3 需要该增强时阅读；未配置不影响深链流程。
+- `references/flyai.md` — optional 飞猪 flyai CLI 机票/酒店 live 查询的安装边界、
+  假设 CLI 契约（未实测）、统一返回 schema、状态表、合并规则与离线 fixture 说明；
+  未配置/失败时深链路径不变，Phase 3 的价格阶梯不因 flyai 存在而放松。
 - `references/phase-4-days.md` — read at the start of Phase 4, before any city is
   planned: the city-agent contract (what every fan-out prompt must carry), the six
   per-city steps, the route_tools order (geocode → tz → sun → links → check → kml),
@@ -343,6 +346,11 @@ never stall silently or invent a script's output.
   直达席别票价/余票、直达无票时中转、按需经停；`live` 才可增量写 legs，完整深链兜底。
   `scripts/train_live_install.py` 是独立显式安装器，固定 commit + npm lock + 审计补丁，
   不全局或静默安装(`--help` 先行；接入细节见 references/train-live.md)。
+- `scripts/flyai_provider.py` — **可选**飞猪 flyai CLI 只读适配器: 机票/酒店实时候选
+  (doctor / flights / hotels / merge 子命令,`--fixture` 离线样本)。无 CLI/无
+  `FLYAI_API_KEY`/体验模式/失败时完整回退 flight_scan 深链;仅 live 可增量写计划
+  (legs 增 flight_live,hotels 增 options[].flyai),遮蔽价只标 masked,口径不明不加总,
+  budget 不重复。CLI 契约未实测,先跑 `doctor`(`references/flyai.md` 有 schema/状态表)。
 - `scripts/route_tools.py` — geocode stops(高德优先 `AMAP_KEY`/`--amap-key`,自动
   GCJ02→WGS84;百度回退 `BAIDU_MAP_AK`/`--baidu-ak`), distance-check clustering, emit
   per-hop map links and the trip KML; subcommands geocode / check (`--live` 用高德
