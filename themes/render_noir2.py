@@ -70,8 +70,7 @@ import pathlib
 import sys
 
 from theme_common import (LUCIDE, T, add_art_arg, asset_count, brief_titles, data_uri,
-                          day_embed_url, day_map_note_html, route_detail,
-                          esc, export_js, export_prefix, init_lang, lang,
+                          day_embed_url, day_map_note_html, route_detail, esc, export_js, export_prefix, init_lang, lang, hotel_option_extra,
                           load_art, load_plan, short_dates, theme_name, title_head,
                           title_kick)
 
@@ -304,7 +303,7 @@ def main():
         f'<span class="w">{esc(h.get("area",""))} <span class="dim">{esc(h.get("why",""))}</span><br>'
         + " · ".join(
             f'<a href="{esc(o.get("link","#"))}" target="_blank" rel="noopener">{esc(o.get("name",""))}</a>'
-            f' <span class="dim">{esc(o.get("band",""))}</span>'
+            f' <span class="dim">{esc(o.get("band",""))}</span>{hotel_option_extra(o)}'
             for o in h.get("options", []))
         + '</span><span class="n"></span></div>' for h in p.get("hotels", []))
     budget = "".join(

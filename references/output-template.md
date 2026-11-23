@@ -30,14 +30,19 @@ to crash on it, and `legs` still prints every cell blank).
  "checklist": [{"item", "deadline", "price", "link", "link_text", "note"}],
  "legs":      [{"type", "date", "carrier", "from", "to", "dep", "arr", "price", "bags",
                 "link", "note", "backup",                 // 旧字段保持稳定
-                "refund_change", "rail_live"}],           // 可选新增；旧渲染器忽略 rail_live
+                "refund_change",                          // 可选新增（train_live / flyai）
+                "rail_live", "flight_live"}],  // 可选新增；rail_live 来自 train_live.py,
+                                   // flight_live 来自 flyai_provider.py;旧渲染器忽略两者
  "days": [{"date", "city", "label", "sun", "sun_stop", "day_map", "ribbon", "rain_alt",
            "late_cut", "walking_km", "travel_day", "tz",
            "timeline": [{"t", "what", "kind", "price", "note", "tag", "verify",
                          "link", "map"}],
            "hop_links": ["url", ...],           // written by links --write when parked
            "stops": [{"name", "query", "lat", "lon", "mode", "citycode", "route"}]}],
- "hotels": [{"base", "area", "why", "options": [{"name", "band", "link"}]}],
+ "hotels": [{"base", "area", "why", "options": [{"name", "band", "link",
+                "flyai": {"room_type", "beds", "occupancy", "price",
+                          "breakfast", "cancellation", "rating", "tier",
+                          "queried_at", "source"}}]}],   // optional additive per-option
  "budget": [{"cat", "per_person", "total", "note"}],   // a LIST of rows, not {rows:[]}
  "brief":  {"emergency", "safety", "health", "holidays", "weather", "money",
             "connectivity", "insurance", "baggage"},   // in this order — §Brief templates;

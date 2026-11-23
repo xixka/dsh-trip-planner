@@ -1,0 +1,9 @@
+{
+  "tool": "flights",
+  "sample_date": "2026-11-01",
+  "result": {
+    "demoMode": false,
+    "systemMessage": null,
+    "offers": []
+  }
+}

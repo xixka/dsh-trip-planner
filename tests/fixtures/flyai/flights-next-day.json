@@ -1,0 +1,42 @@
+{
+  "tool": "flights",
+  "sample_date": "2026-11-01",
+  "result": {
+    "demoMode": false,
+    "systemMessage": null,
+    "offers": [
+      {
+        "flightNo": "CZ3463",
+        "airline": "中国南方航空",
+        "depAirport": "URC",
+        "depTerminal": "T3",
+        "arrAirport": "CAN",
+        "arrTerminal": "T2",
+        "depDate": "2026-12-01",
+        "depTime": "21:40",
+        "arrDate": "2026-12-02",
+        "arrTime": "02:10",
+        "durationMinutes": 270,
+        "cabin": "economy",
+        "price": 1180,
+        "detailUrl": "https://www.fliggy.com/flight/detail?flightNo=CZ3463&date=2026-12-01"
+      },
+      {
+        "flightNo": "HU7145",
+        "airline": "海南航空",
+        "depAirport": "URC",
+        "depTerminal": "T2",
+        "arrAirport": "CAN",
+        "arrTerminal": "T1",
+        "depDate": "2026-12-01",
+        "depTime": "22:15",
+        "arrDate": "2026-12-02",
+        "arrTime": "03:05",
+        "durationMinutes": 290,
+        "cabin": "economy",
+        "price": 1320,
+        "detailUrl": "https://www.fliggy.com/flight/detail?flightNo=HU7145&date=2026-12-01"
+      }
+    ]
+  }
+}

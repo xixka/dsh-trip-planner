@@ -108,8 +108,7 @@ import re
 import urllib.parse
 
 from theme_common import (Art, LUCIDE, T, add_art_arg, asset_count, brief_titles,
-                          data_uri, day_embed_url, day_map_note_html, route_detail,
-                          esc, et, export_js, export_prefix, ic,
+                          data_uri, day_embed_url, day_map_note_html, route_detail, esc, et, export_js, export_prefix, ic, hotel_option_extra,
                           init_lang, lang, load_art, load_plan, short_dates, theme_name, title_head,
                           title_kick)
 
@@ -684,7 +683,7 @@ def render_hotels(hotels):
         opts = "".join(
             f'<li><a href="{esc(o.get("link", "#"))}" target="_blank" rel="noopener">'
             f'{esc(o.get("name", ""))}</a> <span class="mini">{esc(o.get("band", ""))}'
-            f'</span></li>' for o in h.get("options", []))
+            f'{hotel_option_extra(o)}</span></li>' for o in h.get("options", []))
         out.append(
             f'<div class="hotel"><h4>{esc(h.get("base", ""))} · {esc(h.get("area", ""))}'
             f'</h4><p class="mini">{esc(h.get("why", ""))}</p><ul>{opts}</ul></div>')
