@@ -116,8 +116,7 @@ import urllib.parse
 
 from theme_common import (T, tag_pretty, lang, weekday, theme_name, init_lang,
                           asset_count, brief_titles, data_uri, export_js,
-                          export_prefix, day_embed_url, day_map_note_html, route_detail,
-                          esc, et, ic, load_plan, sprite,
+                          export_prefix, day_embed_url, day_map_note_html, route_detail, esc, et, ic, load_plan, sprite, hotel_option_extra,
                           Art, load_art, add_art_arg, short_dates, title_kick)
 
 HERE = pathlib.Path(__file__).parent
@@ -1272,7 +1271,7 @@ def render_hotels(hotels):
     for h in hotels:
         opts = "".join(
             f'<li><a href="{esc(o.get("link", "#"))}" target="_blank" rel="noopener">'
-            f'{esc(o.get("name", ""))}</a> <span class="mono band">{esc(o.get("band", ""))}</span></li>'
+            f'{esc(o.get("name", ""))}</a> <span class="mono band">{esc(o.get("band", ""))}</span>{hotel_option_extra(o)}</li>'
             for o in h.get("options", []))
         out.append(f'<div class="htl"><h3 class="hand">{ic("hotel")} {esc(h.get("base", ""))}'
                    f' · {esc(h.get("area", ""))}</h3><p class="why">{et(h.get("why", ""))}</p>'

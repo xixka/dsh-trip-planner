@@ -167,9 +167,7 @@ import random
 import re
 
 from theme_common import (T, add_art_arg, asset_count, brief_titles,
-                          data_uri, day_embed_url, day_map_note_html, route_detail,
-                          esc, et, export_js, export_prefix,
-                          ic, init_lang, lang, load_art, load_plan, short_dates, sprite, title_head,
+                          data_uri, day_embed_url, day_map_note_html, route_detail, esc, et, export_js, export_prefix, ic, init_lang, lang, load_art, load_plan, short_dates, sprite, title_head, hotel_option_extra,
                           tag_pretty, theme_name, title_kick)
 
 HERE = pathlib.Path(__file__).parent
@@ -804,7 +802,7 @@ def render_hotels(hotels):
         opts = "".join(
             f'<li><a href="{esc(o.get("link", "#"))}" target="_blank" '
             f'rel="noopener">{esc(o.get("name", ""))}</a>'
-            f' <span class="mini">{esc(o.get("band", ""))}</span></li>'
+            f' <span class="mini">{esc(o.get("band", ""))}</span>{hotel_option_extra(o)}</li>'
             for o in h.get("options", []))
         out.append(
             f'<div class="hotel"><h3>{esc(h.get("base", ""))} · {esc(h.get("area", ""))}</h3>'

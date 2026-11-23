@@ -1,0 +1,26 @@
+{
+  "tool": "flights",
+  "sample_date": "2026-11-01",
+  "result": {
+    "demoMode": true,
+    "systemMessage": "当前为体验模式，返回示例数据，非真实报价",
+    "offers": [
+      {
+        "flightNo": "DEMO001",
+        "airline": "体验航空",
+        "depAirport": "PVG",
+        "depTerminal": "T1",
+        "arrAirport": "KMG",
+        "arrTerminal": "T1",
+        "depDate": "2026-12-01",
+        "depTime": "08:00",
+        "arrDate": "2026-12-01",
+        "arrTime": "11:25",
+        "durationMinutes": 205,
+        "cabin": "economy",
+        "price": 100,
+        "detailUrl": "https://www.fliggy.com/flight/demo"
+      }
+    ]
+  }
+}

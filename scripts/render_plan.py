@@ -20,7 +20,8 @@ Schema (all keys optional except days[].date):
  "decisions": ["open-jaw into KIX out of NRT: refunds a backtracking day", ...],
  "checklist": [{"item","deadline","price","link","link_text","note"}],
  "legs":      [{"type","date","carrier","from","to","dep","arr","price","bags",
-                "link","note","backup"}],
+                "link","note","backup","refund_change",
+                "rail_live"}],  // optional additive object; legacy cells ignore it
  "days": [{"date","city","label","sun","day_map","ribbon","rain_alt","late_cut",
            // HONEST total: on-foot ×1.3 + strolls + in-venue. Either a number or
            // {"total": 7.5, "how": "on foot 2.1×1.3 + in-station 0.8 + in-venue 4.0"}
@@ -36,7 +37,16 @@ Schema (all keys optional except days[].date):
                                            // a hop-by-hop maps row under the day card
            "stops": [{"name","query","lat","lon"}]}],   // mirrors the timeline's
                                                         // places, in visit order
- "hotels": [{"base","area","why","options":[{"name","band","link"}]}],
+ "legs":      [{"type","date","carrier","from","to","dep","arr","price","bags",
+                "link","note","backup","refund_change",
+                "flight_live"}],  // optional additive object from the flyai
+                                  // provider (scripts/flyai_provider.py);
+                                  // legacy cells ignore it
+ "hotels": [{"base","area","why","options":[{"name","band","link",
+                "flyai": {"room_type","beds","occupancy","price","breakfast",
+                          "cancellation","rating","tier","queried_at",
+                          "source"}}]}],   // optional additive per-option object;
+                                           // legacy renderers ignore it
  "budget": [{"cat","per_person","total","note"}],
  "brief":  {"emergency","safety","health","holidays","weather","money",
             "connectivity","insurance","baggage", ...},   # canonical order: output-template §Brief templates
@@ -206,6 +216,55 @@ def link(url, label=None):
         return ""
     return '<a href="{}" target="_blank" rel="noopener">{}</a>'.format(
         e(url), e(label or T("link")))
+
+
+def flyai_note(option):
+    """Optional per-option enrichment line (same shape as themes'
+    theme_common.hotel_option_extra): "" for legacy options so old plans
+    render byte-identically. Masked/unknown prices are never invented."""
+    data = option.get("flyai") if isinstance(option, dict) else None
+    if not isinstance(data, dict) or not data:
+        return ""
+    parts = []
+    for key in ("room_type", "beds"):
+        if isinstance(data.get(key), str) and data[key]:
+            parts.append(e(data[key]))
+    occupancy = data.get("occupancy")
+    if isinstance(occupancy, dict) and isinstance(occupancy.get("max_guests"), int):
+        parts.append("≤{}人".format(occupancy["max_guests"]))
+    price = data.get("price")
+    if isinstance(price, dict):
+        if price.get("status") == "ok" and isinstance(price.get("amount_cny"), (int, float)):
+            parts.append("¥{:.0f}".format(price["amount_cny"]))
+        elif price.get("status") == "masked":
+            parts.append("价格遮蔽,点开核对")
+        else:
+            parts.append("价格未知,点开核对")
+        basis = price.get("basis")
+        if basis and basis != "unknown":
+            parts.append(e({"per-night-per-room": "每间·每晚",
+                            "per-night-per-person": "每人·每晚",
+                            "total-per-room": "每间·全程",
+                            "total-per-person": "每人·全程"}.get(basis, basis)))
+        elif price.get("status") == "ok":
+            parts.append("口径未知,勿加总")
+    for key in ("breakfast", "cancellation"):
+        value = data.get(key)
+        if isinstance(value, str) and value and value != "unknown":
+            parts.append(e(value))
+    rating = data.get("rating")
+    if isinstance(rating, (int, float)) and not isinstance(rating, bool):
+        parts.append("评分 {}".format(rating))
+    tier = data.get("tier")
+    if isinstance(tier, int) and tier >= 1:
+        parts.append("档位 {}".format(tier))
+    if data.get("queried_at"):
+        parts.append(e(str(data["queried_at"]).replace("T", " ")[:16]) + " 查询")
+    if data.get("source"):
+        parts.append(e(data["source"]) + " 参考价")
+    if not parts:
+        return ""
+    return " <span class='note'>{} </span>".format(" · ".join(parts))
 
 
 def pills(item):
@@ -510,8 +569,9 @@ def render(p):
         blocks = []
         for h in p["hotels"]:
             opts = "".join(
-                "<li>{} — {} {}</li>".format(e(o.get("name")), e(o.get("band")),
-                                             link(o.get("link"), T("link.view")))
+                "<li>{} — {} {}{}</li>".format(
+                    e(o.get("name")), e(o.get("band")),
+                    link(o.get("link"), T("link.view")), flyai_note(o))
                 for o in h.get("options", []))
             blocks.append("<h3>{} · {}</h3><p class='note'>{}</p><ul>{}</ul>".format(
                 e(h.get("base")), e(h.get("area")), e(h.get("why")), opts))

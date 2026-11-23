@@ -104,8 +104,7 @@ import re
 import sys
 
 from theme_common import (LUCIDE, T, add_art_arg, asset_count, brief_titles,
-                          data_uri, day_embed_url, day_map_note_html, route_detail,
-                          esc, et, export_js, export_prefix, ic,
+                          data_uri, day_embed_url, day_map_note_html, route_detail, esc, et, export_js, export_prefix, ic, hotel_option_extra,
                           init_lang, lang, load_art, load_plan, set_icon_base, short_dates, title_head,
                           sprite, tag_pretty, theme_name, title_kick)
 
@@ -540,7 +539,7 @@ def appendix(p, total_budget, titles):
         f'<details class="sub"><summary>{esc(h.get("base",""))} · {esc(h.get("area",""))}</summary>'
         f'<p class="dim">{esc(h.get("why",""))}</p><ul>' + "".join(
             f'<li><a href="{esc(o.get("link","#"))}" target="_blank" rel="noopener">{esc(o.get("name",""))}</a>'
-            f' <span class="dim">{esc(o.get("band",""))}</span></li>'
+            f' <span class="dim">{esc(o.get("band",""))}</span>{hotel_option_extra(o)}</li>'
             for o in h.get("options", [])) + "</ul></details>"
         for h in p.get("hotels", []))
     budget = "".join(
