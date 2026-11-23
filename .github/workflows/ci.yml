@@ -1,0 +1,26 @@
+name: CI
+
+# Offline checks only: the unit tests use recorded fixtures and never call
+# real services (no AMAP_KEY, no geocoding, no image generation).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Plugin wrapper self-check
+        run: node tests/plugin.test.mjs
+      - name: Route tools / lint / render unit tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Byte-compile all scripts
+        run: python3 -m compileall -q scripts themes tests
