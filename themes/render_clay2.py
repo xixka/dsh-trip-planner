@@ -104,7 +104,8 @@ import re
 import sys
 
 from theme_common import (LUCIDE, T, add_art_arg, asset_count, brief_titles,
-                          data_uri, day_embed_url, esc, et, export_js, export_prefix, ic,
+                          data_uri, day_embed_url, day_map_note_html, route_detail,
+                          esc, et, export_js, export_prefix, ic,
                           init_lang, lang, load_art, load_plan, set_icon_base, short_dates, title_head,
                           sprite, tag_pretty, theme_name, title_kick)
 
@@ -471,7 +472,8 @@ def tl_row(r):
            f' aria-label="{esc(t("nav.to"))}{esc(r.get("what", ""))[:18]}">{ic("pin")}</a>'
            if r.get("link") else "")
     return (f'<div class="row k-{kind}"><span class="t">{esc(r.get("t",""))}{est}</span>'
-            f'<span class="w">{et(r.get("what",""))}{price}{chip}{nav}</span></div>')
+            f'<span class="w">{et(r.get("what",""))}{price}{chip}{nav}'
+            f'{route_detail(r.get("_route"))}</span></div>')
 
 
 def note_pills(day):
@@ -502,7 +504,8 @@ def render_day(i, day, art):
     embed = day_embed_url(day)
     embed_html = (f'<details class="mapfold"><summary class="npill">{ic("compass")}'
                   f' {esc(t("route_map"))}</summary><div class="map-embed" data-src="{esc(embed)}" data-done="1">'
-                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}"></div></details>' if embed else "")
+                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}">'
+                  f'{day_map_note_html(day)}</div></details>' if embed else "")
     tl = "".join(tl_row(r) for r in day.get("timeline", []))
     pebble_color = PEBBLE[i % 4]
     return f"""

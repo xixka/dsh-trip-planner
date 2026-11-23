@@ -93,7 +93,13 @@ filled, the gates `.ics` and `trip.kml` beside the plan,
 every day with at least one stop and a `sun` that `sun --write` wrote. The gate
 tolerates nothing: any FAIL line is fixed before rendering, and `sun` 字符串永远
 手写补不了——缺哪天就修 stop/tz 后重跑 `sun --write --only DATE`。 `check` proves the geography and `qc.py` the HTML; neither looks at the
-words. The plain
+words. Optional `python3 scripts/route_tools.py routes plan.geo.json --write` may
+add structured real routes after `check` and before rendering; it is never required
+for delivery and does not replace `check --live`, links or manual verification.
+Without a key/route/path, ship the old estimates/deep links and the labelled
+straight-line sketch. With partial paths, keep the “部分为直线示意” note. Do not
+rerun live services in CI; offline fixtures cover the feature, and any unperformed
+real-device check must be stated as unperformed. The plain
 `scripts/render_plan.py plan.geo.json
 -o trip.html` page (printable, checkbox checklist, offline route sketch per day) is an
 **extra** — add it when the user asks for a printable/plain version, or as the last
@@ -198,6 +204,8 @@ manual: references/themes.md.
       不用 `as-of`）: every bookable line has a link that carries
       its dates and a disambiguated place; hotel rows state check-in→check-out dates.
 - [ ] `trip-<theme>.html` rendered through the Phase 0 theme; `themes/qc.py` exited 0;
+  embedded maps remain PNG/data URIs, with no AMAP_KEY, restapi request URL or
+  external map script; routeless/partial maps carry the required sketch note;
       the export probe PNG or the page in a browser was looked at (none available → the
       summary says so).
 - [ ] Cover title from references/cover-titles.md — never a placeholder, never a

@@ -57,6 +57,9 @@ STRINGS = {
         "html_lang": "zh",
         "link": "地图/链接", "verify.est": "est.", "verify.verified": "verified",
         "map.cap": "示意图 · 约 {km:.1f} km 跨度 · 真实导航见上方链接",
+        "map.cap.none": "站点连线示意 · 约 {km:.1f} km 跨度 · 真实导航见上方链接",
+        "map.cap.partial": "部分为直线示意 · 约 {km:.1f} km 跨度 · 真实导航见上方链接",
+        "map.cap.real": "真实路线 · 约 {km:.1f} km 跨度 · 导航见上方链接",
         "sec.decisions": "为你做的决定 / Decisions made for you",
         "sec.checklist": "预订清单 / Booking checklist",
         "th.item": "项目", "th.deadline": "截止/提前量", "th.price": "价格", "th.link": "链接",
@@ -83,6 +86,9 @@ STRINGS = {
         "html_lang": "en",
         "link": "map/link", "verify.est": "est.", "verify.verified": "verified",
         "map.cap": "schematic · about {km:.1f} km across · real navigation in the links above",
+        "map.cap.none": "stop-to-stop sketch · about {km:.1f} km across · navigation in the links above",
+        "map.cap.partial": "some straight-line sketches · about {km:.1f} km across · navigation in the links above",
+        "map.cap.real": "real route paths · about {km:.1f} km across · navigation in the links above",
         "sec.decisions": "Decisions made for you",
         "sec.checklist": "Booking checklist",
         "th.item": "Item", "th.deadline": "Deadline / lead time", "th.price": "Price", "th.link": "Link",
@@ -165,6 +171,8 @@ border:1px solid var(--line);margin-left:6px;white-space:nowrap;color:var(--dim)
 .daymap{display:block;margin:10px 0 0;max-width:100%}
 .daymap polyline{fill:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:5 4;
 opacity:.8}
+.daymap polyline.real{stroke-dasharray:none;stroke-width:2.5}
+.daymap polyline.approx{stroke:var(--dim);stroke-dasharray:4 5;opacity:.65}
 .daymap circle{fill:var(--accent);opacity:.92}
 .daymap text{fill:var(--bg);font-size:12px;font-weight:600}
 .daymap text.cap{fill:var(--dim);font-size:11px;font-weight:400}
@@ -220,24 +228,142 @@ def section(title, body):
     return "<h2>{}</h2>\n{}".format(e(title), body) if body else ""
 
 
+def _route_path(route, origin=None, destination=None):
+    if not isinstance(route, dict) or route.get("status") not in ("ok", "partial"):
+        return []
+    if origin is not None and route.get("from") and route["from"] != origin.get("name"):
+        return []
+    if destination is not None and route.get("to") and route["to"] != destination.get("name"):
+        return []
+    points = []
+    for point in route.get("path") or []:
+        try:
+            lat, lon = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if math.isfinite(lat) and math.isfinite(lon):
+            points.append((lat, lon))
+    return points if len(points) >= 2 else []
+
+
+def _cap_path(points, limit=70, protected=()):
+    if len(points) <= limit:
+        return points
+    lookup = {point: i for i, point in enumerate(points)}
+    keep = {0, len(points) - 1}
+    for point in protected:
+        if point in lookup:
+            keep.add(lookup[point])
+    if len(keep) > limit:
+        ordered = sorted(keep)
+        keep = {ordered[round(i * (len(ordered) - 1) / (limit - 1))]
+                for i in range(limit)}
+    slots = limit - len(keep)
+    for i in range(1, slots + 1):
+        keep.add(round(i * (len(points) - 1) / (slots + 1)))
+    idx = 0
+    while len(keep) < limit:
+        keep.add(idx)
+        idx += 1
+    return [points[i] for i in sorted(keep)]
+
+
+def _day_route_geometry(stops):
+    mapped = []
+    for stop in stops:
+        try:
+            pts = (float(stop["lat"]), float(stop["lon"]), stop.get("name", ""))
+        except (KeyError, TypeError, ValueError):
+            continue
+        mapped.append((stop, pts))
+    hops = []
+    for (origin, a), (destination, b) in zip(mapped, mapped[1:]):
+        route = destination.get("route")
+        path = _route_path(route, origin, destination)
+        real = bool(path)
+        if real:
+            protected = []
+            for segment in route.get("segments") or []:
+                for idx in (0, -1):
+                    try:
+                        point = segment["path"][idx]
+                        protected.append((float(point[0]), float(point[1])))
+                    except (KeyError, TypeError, ValueError, IndexError):
+                        continue
+            path = _cap_path(path, protected=protected)
+        else:
+            path = [(a[0], a[1]), (b[0], b[1])]
+        hops.append((path, real))
+    return [pts for _, pts in mapped], hops
+
+
+def _hop_routes(day):
+    mapped = [stop for stop in day.get("stops") or []
+              if isinstance(stop, dict) and stop.get("lat") is not None
+              and stop.get("lon") is not None]
+    rows = [row for row in day.get("timeline") or []
+            if isinstance(row, dict) and row.get("kind") == "hop"
+            and row.get("map") is not False]
+    if len(rows) != max(0, len(mapped) - 1):
+        return {}
+    return {id(row): destination.get("route")
+            for row, destination in zip(rows, mapped[1:])
+            if isinstance(destination.get("route"), dict)}
+
+
+def _route_detail(route):
+    if not isinstance(route, dict) or route.get("status") not in ("ok", "partial"):
+        return ""
+    bits = []
+    if route.get("distance_m"):
+        distance = route["distance_m"]
+        bits.append("{:.1f} km".format(distance / 1000) if distance >= 1000
+                    else "{} m".format(distance))
+    if route.get("duration_min"):
+        bits.append("{} min".format(route["duration_min"]))
+    cost = route.get("cost")
+    if isinstance(cost, dict) and isinstance(cost.get("amount"), (int, float)):
+        label = "票价" if cost.get("kind") == "transit_fare" else "通行费"
+        bits.append("{} ¥{:g}".format(label, cost["amount"]))
+    groups = []
+    if bits:
+        groups.append(" · ".join(bits))
+    for segment in route.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        item = []
+        if segment.get("line"):
+            item.append(str(segment["line"]))
+        if segment.get("direction"):
+            item.append("往{}".format(segment["direction"]))
+        if segment.get("from") and segment.get("to"):
+            item.append("{} → {}".format(segment["from"], segment["to"]))
+        if segment.get("station_count") is not None:
+            item.append("途经{}站".format(segment["station_count"]))
+        if segment.get("duration_min"):
+            item.append("{} min".format(segment["duration_min"]))
+        if item:
+            groups.append(" · ".join(item))
+    if not groups:
+        return ""
+    return '<div class="note route-data" data-route-source="{}">高德: {}</div>'.format(
+        e(route.get("source", "live")), e(" / ".join(groups)))
+
+
 def day_svg(stops, w=680, h=170, pad=26):
-    """A schematic of the day's shape from the stop coordinates — numbered dots in
-    visiting order, joined in sequence. Deliberately NOT a street map: it has no
-    tiles, so it works offline and inside a strict CSP, and it answers the only
-    question a glance can answer — does today zig-zag across town or flow in a line?
-    Real navigation stays in the per-hop links."""
-    pts = [(float(s["lat"]), float(s["lon"]), s.get("name", ""))
-           for s in stops
-           if isinstance(s, dict) and s.get("lat") is not None
-           and s.get("lon") is not None]
+    """Offline SVG, progressively enhanced with real per-hop WGS84 paths."""
+    pts, hops = _day_route_geometry(stops)
     if len(pts) < 2:
         return ""
-    lats = [p[0] for p in pts]
-    lons = [p[1] for p in pts]
+    real_count = sum(1 for _, real in hops if real)
+    fit_paths = [path for path, _ in hops] if real_count else [pts]
+    fit = [point for path in fit_paths for point in path]
+    lats = [p[0] for p in fit]
+    lons = [p[1] for p in fit]
     mlat = sum(lats) / len(lats)
-    kx = math.cos(math.radians(mlat))            # equirectangular: shrink lon
-    xs = [p[1] * kx for p in pts]
-    ys = [-p[0] for p in pts]
+    kx = math.cos(math.radians(mlat))
+    xs = [p[1] * kx for p in fit]
+    ys = [-p[0] for p in fit]
     spanx, spany = max(xs) - min(xs), max(ys) - min(ys)
     if spanx <= 0 and spany <= 0:
         return ""
@@ -245,20 +371,31 @@ def day_svg(stops, w=680, h=170, pad=26):
                 (h - 2 * pad) / spany if spany > 0 else 1e9)
     cx = (w - spanx * scale) / 2 - min(xs) * scale
     cy = (h - spany * scale) / 2 - min(ys) * scale
-    xy = [(x * scale + cx, y * scale + cy) for x, y in zip(xs, ys)]
-    # scale bar: 1 degree of latitude ≈ 111.2 km, and y is in degrees of latitude
+    def project(path):
+        return [(p[1] * kx * scale + cx, -p[0] * scale + cy) for p in path]
+    xy = project(pts)
     km_across = spany * 111.2 if spany > 0 else spanx / kx * 111.2
-    poly = " ".join("{:.1f},{:.1f}".format(x, y) for x, y in xy)
+    if real_count:
+        lines = []
+        for path, real in hops:
+            poly = " ".join("{:.1f},{:.1f}".format(x, y) for x, y in project(path))
+            lines.append('<polyline class="{}" points="{}"/>'.format(
+                "real" if real else "approx", poly))
+        lines = "".join(lines)
+    else:
+        poly = " ".join("{:.1f},{:.1f}".format(x, y) for x, y in xy)
+        lines = '<polyline points="{}"/>'.format(poly)
     dots = "".join(
         '<circle cx="{:.1f}" cy="{:.1f}" r="11"/>'
         '<text x="{:.1f}" y="{:.1f}" text-anchor="middle" dy="4">{}</text>'
         '<title>{}</title>'.format(x, y, x, y, i, e(p[2]))
         for i, ((x, y), p) in enumerate(zip(xy, pts), 1))
-    return ((
-        '<svg class="daymap" viewBox="0 0 {w} {h}" width="100%" height="{h}" '
-        'role="img" aria-label="route shape"><polyline points="{poly}"/>{dots}'
-        '<text class="cap" x="8" y="{cap}">' + T("map.cap") + '</text></svg>').format(
-            w=w, h=h, poly=poly, dots=dots, cap=h - 7, km=max(km_across, 0.1)))
+    kind = "real" if real_count == len(hops) else ("partial" if real_count else "none")
+    caption = T("map.cap." + kind).format(km=max(km_across, 0.1))
+    return ('<svg class="daymap" viewBox="0 0 {w} {h}" width="100%" height="{h}" '
+            'role="img" aria-label="route shape">{lines}{dots}'
+            '<text class="cap" x="8" y="{cap}">{caption}</text></svg>'.format(
+                w=w, h=h, lines=lines, dots=dots, cap=h - 7, caption=e(caption)))
 
 
 def render(p):
@@ -328,11 +465,13 @@ def render(p):
             sun = ('<span class="sun">{}</span>'.format(e(d["sun"]))
                    if d.get("sun") else "")
             rows = []
+            route_rows = _hop_routes(d)
             for it in d.get("timeline", []):
                 kind = it.get("kind", "anchor")
                 what = e(it.get("what"))
                 if it.get("link"):
                     what += " " + link(it["link"], T("map.here"))
+                what += _route_detail(route_rows.get(id(it)))
                 bits = [x for x in [e(it.get("price")), e(it.get("note"))] if x]
                 if bits:
                     what += '<div class="note">{}</div>'.format(" — ".join(bits))

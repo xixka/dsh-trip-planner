@@ -1,0 +1,142 @@
+{
+  "walking": {
+    "status": "1",
+    "route": {
+      "paths": [
+        {
+          "distance": "2000",
+          "duration": "1200",
+          "steps": [
+            {"polyline": "116.4100,39.9050;116.4110,39.9060;116.4120,39.9070"}
+          ]
+        },
+        {
+          "distance": "1200",
+          "duration": "600",
+          "steps": [
+            {"polyline": "116.4074,39.9042;116.4080,39.9050"},
+            {"polyline": "116.4080,39.9050;116.4090,39.9060"}
+          ]
+        }
+      ]
+    }
+  },
+  "driving": {
+    "status": "1",
+    "route": {
+      "paths": [
+        {
+          "distance": "9000",
+          "duration": "1800",
+          "tolls": "10",
+          "steps": [
+            {"polyline": "116.4100,39.9050;116.4110,39.9060"}
+          ]
+        },
+        {
+          "distance": "7000",
+          "duration": "900",
+          "tolls": "5",
+          "steps": [
+            {"polyline": "116.4074,39.9042;116.4080,39.9050;116.4090,39.9060"}
+          ]
+        }
+      ]
+    }
+  },
+  "transit_transfer": {
+    "status": "1",
+    "route": {
+      "transits": [
+        {
+          "distance": "12000",
+          "duration": "3000",
+          "cost": "8",
+          "segments": []
+        },
+        {
+          "duration": "1500",
+          "cost": "5",
+          "segments": [
+            {
+              "walking": {
+                "distance": "60",
+                "duration": "120",
+                "steps": [
+                  {"polyline": "116.4074,39.9042;116.4078,39.9045"}
+                ]
+              }
+            },
+            {
+              "bus": {
+                "buslines": [
+                  {
+                    "name": "地铁1号线",
+                    "direction": "苹果园",
+                    "distance": "3000",
+                    "duration": "600",
+                    "via_num": "2",
+                    "departure_stop": {"name": "天安门东"},
+                    "arrival_stop": {"name": "西单"},
+                    "polyline": "116.4078,39.9045;116.4082,39.9050;116.4086,39.9055"
+                  }
+                ]
+              }
+            },
+            {
+              "bus": {
+                "buslines": [
+                  {
+                    "name": "地铁4号线",
+                    "distance": "2500",
+                    "duration": "480",
+                    "via_num": "3",
+                    "departure_stop": {"name": "西单"},
+                    "arrival_stop": {"name": "平安里"},
+                    "polyline": "116.4086,39.9055;116.4090,39.9060;116.4094,39.9065"
+                  }
+                ]
+              }
+            },
+            {
+              "walking": {
+                "distance": "80",
+                "duration": "180",
+                "steps": [
+                  {"polyline": "116.4094,39.9065;116.4098,39.9070"}
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "no_route": {
+    "status": "1",
+    "route": {"paths": []}
+  },
+  "zero_route": {
+    "status": "1",
+    "route": {
+      "paths": [{"distance": "0", "duration": "0", "steps": []}]
+    }
+  },
+  "missing_fields": {
+    "status": "1",
+    "route": {
+      "paths": [
+        {
+          "distance": "1200",
+          "steps": [
+            {"polyline": "116.4074,39.9042;116.4090,39.9060"}
+          ]
+        }
+      ]
+    }
+  },
+  "qps": {
+    "status": "0",
+    "info": "CUQPS_HAS_EXCEEDED_THE_LIMIT"
+  }
+}

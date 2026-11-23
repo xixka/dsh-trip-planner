@@ -92,6 +92,13 @@ Subcommands:
                                  hop >60 km, or a hop with missing coordinates;
                                  --live swaps (est) for real 高德 driving/transit
                                  minutes (needs AMAP_KEY; routecache.json cache)
+  routes  plan.geo.json [--write] [--strategy 0] [--ttl 86400]
+                              -> optional structured walk/transit/drive routes:
+                                 metrics, explicit costs, segments and WGS84 paths.
+                                 Dry-run writes nothing; --write atomically updates
+                                 arriving stops' route fields + TTL routecache.json.
+                                 AMAP_KEY environment/.env only (no key CLI here).
+                                 check --live and its cross-city fallback stay old.
   links   plan.geo.json [--write] [--provider amap|baidu]
                               -> per-hop map links;
                                  --write injects them into the plan's hop rows and
@@ -184,7 +191,9 @@ import math
 import os
 import re
 import sys
+import tempfile
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -635,6 +644,418 @@ def _amap_direction_minutes(ca, cb, mode, key, city=""):
         return None
 
 
+# Structured routes are an optional v2 layer. The minute-only API above stays
+# untouched for `check --live`; this separate path never changes its selection or
+# cross-city behaviour. No request URL is ever returned in a route record.
+ROUTE_MODES = ("walk", "transit", "drive")
+ROUTE_CACHE_PREFIX = "route-v2|"
+ROUTE_PATH_MAX = 160
+ROUTE_SEGMENT_PATH_MAX = 60
+
+
+class RouteRequestError(RuntimeError):
+    """A sanitised, classified request failure (never carries the request URL)."""
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind
+
+
+def _utc_now():
+    return (_dt.datetime.now(_dt.timezone.utc).replace(microsecond=0)
+            .isoformat().replace("+00:00", "Z"))
+
+
+def _amap_route_request(url, retries=1, timeout=15):
+    """GET one route response; retry only transient failures, with a hard cap."""
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=UA),
+                                        timeout=timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except TimeoutError as ex:
+            last = RouteRequestError("timeout", "amap direction request timed out")
+            if attempt < retries:
+                continue
+            raise last from ex
+        except urllib.error.HTTPError as ex:
+            kind = "qps" if ex.code == 429 else "http"
+            last = RouteRequestError(kind, "amap direction HTTP {}".format(ex.code))
+            if attempt < retries and (ex.code == 429 or ex.code >= 500):
+                time.sleep(0.8)
+                continue
+            raise last from ex
+        except urllib.error.URLError as ex:
+            reason = getattr(ex, "reason", None)
+            kind = ("timeout" if "timed out" in str(reason).lower() else "network")
+            last = RouteRequestError(kind, "amap direction {} error".format(kind))
+            if attempt < retries:
+                continue
+            raise last from ex
+        except (UnicodeDecodeError, ValueError) as ex:
+            raise RouteRequestError(
+                "invalid_response", "amap direction returned invalid JSON") from ex
+        if not isinstance(data, dict):
+            raise RouteRequestError(
+                "invalid_response", "amap direction returned a non-object response")
+        if data.get("status") != "1":
+            info = str(data.get("info") or data.get("infocode") or "unknown")[:160]
+            secret = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query).get("key", [""])[0]
+            if secret:
+                info = info.replace(secret, "[redacted]")
+            info = re.sub(r"https?://\S+", "[redacted URL]", info)
+            kind = "qps" if "QPS" in info.upper() else "api"
+            last = RouteRequestError(kind, "amap direction API error: " + info)
+            if kind == "qps" and attempt < retries:
+                time.sleep(0.8)
+                continue
+            raise last
+        return data
+    raise last or RouteRequestError("network", "amap direction request failed")
+
+
+def _positive_number(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def _route_metrics(raw):
+    distance = _positive_number(raw.get("distance"))
+    seconds = _positive_number(raw.get("duration"))
+    out = {}
+    if distance is not None:
+        out["distance_m"] = int(round(distance))
+    if seconds is not None:
+        out["duration_min"] = max(1, int(round(seconds / 60.0)))
+    return out
+
+
+def _station_count(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        return None
+    return count if count >= 0 else None
+
+
+def _route_cost(value, kind):
+    if isinstance(value, (list, tuple, dict)):
+        return None
+    try:
+        amount = float(value)
+        if not math.isfinite(amount) or amount < 0:
+            return None
+        if amount.is_integer():
+            amount = int(amount)
+    except (TypeError, ValueError):
+        return None
+    return {"amount": amount, "currency": "CNY", "kind": kind}
+
+
+def _point_segment_distance(point, start, end):
+    """Small equirectangular distance used only for path simplification."""
+    lat, lon = point
+    scale = math.cos(math.radians((start[0] + end[0] + lat) / 3.0))
+    px, py = lon * scale, lat
+    ax, ay = start[1] * scale, start[0]
+    bx, by = end[1] * scale, end[0]
+    dx, dy = bx - ax, by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) /
+                     float(dx * dx + dy * dy)))
+    return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def simplify_route_path(points, max_points=ROUTE_PATH_MAX, protected=()):
+    """Douglas-Peucker-style cap preserving endpoints and supplied key points."""
+    pts = [(float(p[0]), float(p[1])) for p in points]
+    max_points = max(2, int(max_points))
+    if len(pts) <= max_points:
+        return [[round(lat, 7), round(lon, 7)] for lat, lon in pts]
+    lookup = {tuple(p): i for i, p in enumerate(pts)}
+    mandatory = {0, len(pts) - 1}
+    for point in protected:
+        try:
+            key = (float(point[0]), float(point[1]))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if key in lookup:
+            mandatory.add(lookup[key])
+    if len(mandatory) > max_points:
+        ordered = sorted(mandatory)
+        mandatory = {0, len(pts) - 1}
+        for i in range(1, max_points - 1):
+            mandatory.add(ordered[round(i * (len(ordered) - 1) / (max_points - 1))])
+    keep = set(mandatory)
+    while len(keep) < max_points:
+        ordered = sorted(keep)
+        best = None
+        for left, right in zip(ordered, ordered[1:]):
+            for idx in range(left + 1, right):
+                distance = _point_segment_distance(pts[idx], pts[left], pts[right])
+                if best is None or distance > best[0]:
+                    best = (distance, idx)
+        if best is None or best[0] <= 1e-14:
+            break
+        keep.add(best[1])
+    return [[round(pts[i][0], 7), round(pts[i][1], 7)] for i in sorted(keep)]
+
+
+def _route_polyline(raw):
+    """AMap GCJ-02 'lon,lat;…' -> bounded WGS84 [[lat,lon],…]."""
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    points = []
+    for token in raw.split(";"):
+        try:
+            lon, lat = token.split(",", 1)
+            point = gcj02_to_wgs84(float(lat), float(lon))
+        except (TypeError, ValueError):
+            continue
+        if not points or point != points[-1]:
+            points.append(point)
+    return simplify_route_path(points, ROUTE_SEGMENT_PATH_MAX) if len(points) >= 2 else []
+
+
+def _paths_from_steps(steps):
+    if not isinstance(steps, list) or not steps:
+        return [], False
+    paths = []
+    complete = True
+    for step in steps:
+        if not isinstance(step, dict):
+            complete = False
+            continue
+        path = _route_polyline(step.get("polyline"))
+        if path:
+            paths.append(path)
+        else:
+            complete = False
+    return paths, complete and bool(paths)
+
+
+def _combine_route_paths(paths):
+    if not paths or any(not path for path in paths):
+        return []
+    combined, protected = [], []
+    for path in paths:
+        if combined and path[0] == combined[-1]:
+            combined.extend(path[1:])
+        else:
+            combined.extend(path)
+        protected.extend((path[0], path[-1]))
+    if len(combined) < 2:
+        return []
+    return simplify_route_path(combined, ROUTE_PATH_MAX, protected)
+
+
+def _stop_name(raw):
+    return str(raw.get("name")) if isinstance(raw, dict) and raw.get("name") else None
+
+
+def _put_known(target, key, value):
+    if value is not None and value != "":
+        target[key] = value
+
+
+def _transit_segments(raw_segments):
+    segments = []
+    if not isinstance(raw_segments, list):
+        return segments, False
+    path_complete = bool(raw_segments)
+    for raw in raw_segments:
+        if not isinstance(raw, dict):
+            path_complete = False
+            continue
+        walking = raw.get("walking") or {}
+        bus = raw.get("bus") or {}
+        railway = raw.get("railway") or {}
+        segment = None
+        if isinstance(walking, dict) and walking:
+            paths, complete = _paths_from_steps(walking.get("steps"))
+            path = _combine_route_paths(paths) if complete else []
+            segment = {"mode": "walk"}
+            segment.update(_route_metrics(walking))
+            if path:
+                segment["path"] = path
+        elif isinstance(bus, dict) and (bus.get("buslines") or []):
+            lines = [line for line in (bus.get("buslines") or [])
+                     if isinstance(line, dict)]
+            if not lines:
+                path_complete = False
+                continue
+            def line_rank(line):
+                metrics = _route_metrics(line)
+                return (0 if len(metrics) == 2 else 1,
+                        metrics.get("duration_min", float("inf")),
+                        metrics.get("distance_m", float("inf")),
+                        str(line.get("name") or ""))
+            line = sorted(lines, key=line_rank)[0]
+            segment = {"mode": "transit"}
+            segment.update(_route_metrics(line))
+            _put_known(segment, "line", line.get("name"))
+            # Direction is copied only when explicitly supplied; arrival_stop is
+            # not repurposed as a guessed direction.
+            _put_known(segment, "direction", line.get("direction") or bus.get("direction"))
+            _put_known(segment, "from", _stop_name(line.get("departure_stop")))
+            _put_known(segment, "to", _stop_name(line.get("arrival_stop")))
+            _put_known(segment, "station_count", _station_count(line.get("via_num")))
+            path = _route_polyline(line.get("polyline"))
+            if path:
+                segment["path"] = path
+        elif isinstance(railway, dict) and railway:
+            segment = {"mode": "transit"}
+            railway_metrics = dict(railway)
+            if "duration" not in railway_metrics and "time" in railway_metrics:
+                railway_metrics["duration"] = railway_metrics["time"]
+            segment.update(_route_metrics(railway_metrics))
+            _put_known(segment, "line", railway.get("name"))
+            _put_known(segment, "direction", railway.get("direction"))
+            _put_known(segment, "from", _stop_name(railway.get("departure_stop")))
+            _put_known(segment, "to", _stop_name(railway.get("arrival_stop")))
+            railway_count = _station_count(railway.get("via_num"))
+            if railway_count is None and isinstance(railway.get("via_stop"), list):
+                railway_count = len(railway["via_stop"])
+            _put_known(segment, "station_count", railway_count)
+            path = _route_polyline(railway.get("polyline"))
+            if path:
+                segment["path"] = path
+        if segment is None:
+            path_complete = False
+            continue
+        if len(segment) > 1:
+            segments.append(segment)
+        if not segment.get("path") and len(segment) > 1:
+            path_complete = False
+    return segments, path_complete and bool(segments)
+
+
+def _transit_metrics(candidate, segments):
+    record = _route_metrics(candidate)
+    # The integrated API normally omits total distance. Sum only when EVERY
+    # retained segment has an explicit distance; otherwise leave it unknown.
+    if "distance_m" not in record and segments and all(
+            segment.get("distance_m") for segment in segments):
+        record["distance_m"] = sum(segment["distance_m"] for segment in segments)
+        record["distance_basis"] = "segments_sum"
+    return record
+
+
+def _candidate_rank(record, mode, strategy):
+    complete = record.get("distance_m") and record.get("duration_min")
+    primary = ()
+    if mode == "transit" and strategy == 1:       # most economical
+        cost = record.get("cost") or {}
+        primary = (cost.get("amount", float("inf")),)
+    elif mode == "transit" and strategy == 2:     # fewest transfers
+        segments = record.get("segments")
+        primary = (sum(1 for segment in segments
+                       if segment.get("mode") == "transit") if segments
+                   else float("inf"),)
+    elif mode == "transit" and strategy == 3:     # least walking
+        segments = record.get("segments")
+        walking = [segment.get("distance_m") for segment in segments or []
+                   if segment.get("mode") == "walk"]
+        primary = (float("inf") if not segments
+                   or any(distance is None for distance in walking) else sum(walking),)
+    elif mode == "drive" and strategy in (1, 7, 14, 16, 17, 18):
+        primary = ((record.get("cost") or {}).get("amount", float("inf")),)
+    return ((0 if complete else 1,) + primary +
+            (record.get("duration_min", float("inf")),
+             record.get("distance_m", float("inf")),
+             0 if record.get("path") else 1,
+             json.dumps(record.get("segments") or [], ensure_ascii=False, sort_keys=True)))
+
+
+def _amap_direction_route(ca, cb, mode, key, city="", strategy=0,
+                          departure_date="", departure_time=""):
+    """Return one structured AMap route for WGS84 endpoints.
+
+    Candidates within the requested AMap strategy are ranked by complete metrics,
+    duration and distance — never blindly first. All returned coordinates are
+    WGS84. No-route is data; request failures raise RouteRequestError so the
+    caller can isolate just this hop.
+    """
+    if mode not in ROUTE_MODES:
+        raise ValueError("unsupported structured route mode {!r}".format(mode))
+    go, to = wgs84_to_gcj02(*ca), wgs84_to_gcj02(*cb)
+    params = [("output", "json"),
+              ("origin", _ll((go[1], go[0]))),
+              ("destination", _ll((to[1], to[0])))]
+    if mode == "transit":
+        endpoint = "https://restapi.amap.com/v3/direction/transit/integrated"
+        params.extend((("strategy", str(strategy)), ("city", city)))
+        if departure_date and departure_time:
+            params.extend((("date", departure_date), ("time", departure_time)))
+    elif mode == "walk":
+        endpoint = "https://restapi.amap.com/v3/direction/walking"
+    else:
+        endpoint = "https://restapi.amap.com/v3/direction/driving"
+        params.append(("strategy", str(strategy)))
+    params.append(("key", key))
+    data = _amap_route_request(endpoint + "?" + urllib.parse.urlencode(params))
+    route = data.get("route") or {}
+    records = []
+    if mode == "transit":
+        for candidate in route.get("transits") or []:
+            if not isinstance(candidate, dict):
+                continue
+            segments, path_complete = _transit_segments(candidate.get("segments"))
+            record = _transit_metrics(candidate, segments)
+            cost = _route_cost(candidate.get("cost"), "transit_fare")
+            if cost:
+                record["cost"] = cost
+            if segments:
+                record["segments"] = segments
+            if path_complete:
+                path = _combine_route_paths([s["path"] for s in segments])
+                if path:
+                    record["path"] = path
+            if any(field in record for field in ("distance_m", "duration_min", "segments", "path")):
+                records.append(record)
+    else:
+        for candidate in route.get("paths") or []:
+            if not isinstance(candidate, dict):
+                continue
+            record = _route_metrics(candidate)
+            paths, path_complete = _paths_from_steps(candidate.get("steps"))
+            if path_complete:
+                path = _combine_route_paths(paths)
+                if path:
+                    record["path"] = path
+            if mode == "drive":
+                cost = _route_cost(candidate.get("tolls"), "road_tolls")
+                if cost:
+                    record["cost"] = cost
+            if any(field in record for field in ("distance_m", "duration_min", "path")):
+                records.append(record)
+    base = {"mode": mode, "provider": "amap", "queried_at": _utc_now()}
+    if not records:
+        base.update({"status": "no_route", "source": "estimated",
+                     "error": {"kind": "no_route",
+                               "message": "provider returned no usable route"}})
+        return base
+    best = dict(sorted(records, key=lambda record: _candidate_rank(
+        record, mode, strategy))[0])
+    best.update(base)
+    best["source"] = "live"
+    missing = [key for key in ("distance_m", "duration_min") if key not in best]
+    if missing:
+        best["status"] = "partial"
+        best["error"] = {"kind": "missing_fields", "fields": missing}
+    else:
+        best["status"] = "ok"
+    return best
+
+
 def _amap_around(c, kw, key, radius=1000, limit=10):
     """高德 place/around POI search. c is WGS84 (lat, lon); returns a list of
     {name, type, address, dist_m, lat, lon(WGS84)} sorted by the API's own
@@ -729,14 +1150,14 @@ def cmd_geocode(args):
                     try:
                         hit = _geocode_amap(q, amap_key)
                     except Exception as ex:
-                        print("  amap geocode failed on {!r}: {}".format(q, ex))
+                        print("  amap geocode failed on {!r}: {}".format(q, type(ex).__name__))
                         hit = None
                 if hit is None and baidu_ak:
                     # 百度 geocoding v3 fallback (also GCJ-02 -> WGS84).
                     try:
                         hit = _geocode_baidu(q, baidu_ak)
                     except Exception as ex:
-                        print("  baidu geocode failed on {!r}: {}".format(q, ex))
+                        print("  baidu geocode failed on {!r}: {}".format(q, type(ex).__name__))
                         hit = None
                 if hit is None:
                     # Negative results are NOT cached: a miss is almost always a bad
@@ -834,7 +1255,8 @@ def _live_dur(ca, cb, cat, sa, sb, key, routecache, geo, cache_path):
                 mins = _amap_direction_minutes(ca, cb, "drive", key)
                 tag = "驾车实时"
         except Exception as ex:
-            warn("高德实时时距调用失败({}) — 本跳回退直线估算".format(ex))
+            warn("高德实时时距调用失败({}) — 本跳回退直线估算".format(
+                type(ex).__name__))
             return None
         if mins is None:
             return None
@@ -942,6 +1364,238 @@ def cmd_check(args):
         sys.exit(2)
 
 
+def _atomic_write_json(path, value):
+    """Write JSON beside its destination, then atomically replace the old file."""
+    path = Path(path)
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+                "w", encoding="utf-8", dir=str(path.parent),
+                prefix=path.name + ".", suffix=".tmp", delete=False) as tmp:
+            tmp_name = tmp.name
+            json.dump(value, tmp, ensure_ascii=False, indent=1)
+            tmp.write("\n")
+        os.replace(tmp_name, path)
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+
+
+def _structured_route_cache(path, what="结构化路线缓存"):
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError) as ex:
+        warn("{}不可读，忽略并重新查询 ({})".format(what, type(ex).__name__))
+        return {}
+    if not isinstance(value, dict):
+        warn("{}不是对象，忽略并重新查询".format(what))
+        return {}
+    return value
+
+
+def _route_cache_key(mode, ca, cb, city_a, city_b, strategy, time_semantics):
+    identity = {
+        "mode": mode,
+        "origin": [round(ca[0], 6), round(ca[1], 6)],
+        "destination": [round(cb[0], 6), round(cb[1], 6)],
+        "city_a": city_a or "", "city_b": city_b or "",
+        "strategy": int(strategy), "time": time_semantics or "",
+    }
+    return ROUTE_CACHE_PREFIX + json.dumps(
+        identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _cached_structured_route(cache, key, ttl, now=None):
+    if ttl <= 0:
+        return None
+    entry = cache.get(key)
+    if not isinstance(entry, dict) or not isinstance(entry.get("route"), dict):
+        return None
+    try:
+        cached_at = float(entry["cached_at"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    now = time.time() if now is None else now
+    if now < cached_at - 300 or now - cached_at >= ttl:
+        return None
+    route = json.loads(json.dumps(entry["route"]))
+    if route.get("status") not in ("ok", "partial"):
+        return None
+    route["source"] = "cache"
+    return route
+
+
+def _cache_structured_route(cache, key, route, now=None):
+    if route.get("status") not in ("ok", "partial"):
+        return False
+    stored = json.loads(json.dumps(route))
+    stored["source"] = "live"
+    cache[key] = {"cached_at": time.time() if now is None else now,
+                  "route": stored}
+    return True
+
+
+def _route_citycode(stop, geocache):
+    direct = str(stop.get("citycode") or "").strip()
+    if direct:
+        return direct
+    query = stop.get("query") or stop.get("name") or ""
+    return str((geocache.get(query) or {}).get("citycode") or "").strip()
+
+
+def _route_rows(day, hop_count):
+    rows = [item for item in (day.get("timeline") or [])
+            if isinstance(item, dict) and item.get("kind") == "hop"
+            and item.get("map") is not False]
+    return rows if len(rows) == hop_count else []
+
+
+def _route_departure(day, row):
+    """Use only a valid plan date plus an explicit row-start HH:MM, never a guess."""
+    try:
+        date = _dt.date.fromisoformat(str(day.get("date") or "")).isoformat()
+    except ValueError:
+        return "", ""
+    match = re.match(r"\s*((?:[01]\d|2[0-3]):[0-5]\d)", str(row.get("t") or ""))
+    return (date, match.group(1)) if match else ("", "")
+
+
+def _merge_route_result(existing, result):
+    """Keep manual/custom fields; on failure also retain old data for inspection.
+
+    Renderers only consume path/details for ok/partial records, so retained data
+    under an error status is never presented as a fresh successful lookup.
+    """
+    if not isinstance(existing, dict):
+        return result
+    if result.get("status") not in ("ok", "partial"):
+        merged = dict(existing)
+        merged.update(result)
+        return merged
+    standard = {"mode", "distance_m", "distance_basis", "duration_min", "cost", "segments",
+                "path", "provider", "queried_at", "status", "error", "source",
+                "from", "to"}
+    merged = {key: value for key, value in existing.items() if key not in standard}
+    merged.update(result)
+    return merged
+
+
+def _route_failure(mode, kind, message):
+    return {"mode": mode, "provider": "amap", "queried_at": _utc_now(),
+            "status": "error" if kind != "cross_city_transit" else "degraded",
+            "source": "estimated",
+            "error": {"kind": kind, "message": message}}
+
+
+def cmd_routes(args):
+    """Fetch optional structured walk/transit/drive routes, hop by hop."""
+    plan = load_plan(args.plan)
+    key = (os.environ.get("AMAP_KEY") or "").strip()
+    if not key:
+        warn("routes 需要 AMAP_KEY 环境变量；本次不查询、不写回，原估算和深链保持不变")
+        return
+    src = Path(args.plan)
+    cache_path = src.parent / "routecache.json"
+    cache = _structured_route_cache(cache_path)
+    geocache_path = src.parent / "geocache.json"
+    geocache = _structured_route_cache(geocache_path, "地理编码缓存")
+    ttl = max(0, int(args.ttl))
+    strategy = int(args.strategy)
+    cache_dirty = False
+    counts = {"ok": 0, "cache": 0, "failed": 0, "skipped": 0}
+    for day_index, day in enumerate(plan["days"], 1):
+        mapped = [stop for stop in day["stops"] if coords(stop)]
+        hop_count = max(0, len(mapped) - 1)
+        rows = _route_rows(day, hop_count)
+        print("\nDay {} {} — {}".format(day_index, day.get("date", "?"),
+                                          day.get("label", "")))
+        for hop_index, (origin, destination) in enumerate(zip(mapped, mapped[1:])):
+            ca, cb = coords(origin), coords(destination)
+            km = haversine_km(ca, cb)
+            cat, _, _, estimate = hop_estimate(km, destination.get("mode"))
+            if cat not in ROUTE_MODES:
+                counts["skipped"] += 1
+                continue
+            row = rows[hop_index] if rows else {}
+            time_semantics = "{}|{}".format(day.get("date", ""), row.get("t", ""))
+            city_a = city_b = ""
+            if cat == "transit":
+                city_a = _route_citycode(origin, geocache)
+                city_b = _route_citycode(destination, geocache)
+            departure_date, departure_time = (_route_departure(day, row)
+                                                 if cat == "transit" else ("", ""))
+            cache_key = _route_cache_key(cat, ca, cb, city_a, city_b, strategy,
+                                         time_semantics)
+            record = _cached_structured_route(cache, cache_key, ttl)
+            if record is not None:
+                counts["cache"] += 1
+                counts["ok"] += 1
+            elif cat == "transit" and (not city_a or city_a != city_b):
+                # Same degradation boundary as check --live. Unlike the legacy
+                # minute display, do not relabel driving data as a transit route.
+                record = _route_failure(
+                    cat, "cross_city_transit",
+                    "transit is city-scoped; missing/different citycodes, original estimate kept")
+                counts["failed"] += 1
+            else:
+                try:
+                    record = _amap_direction_route(
+                        ca, cb, cat, key, city=city_a, strategy=strategy,
+                        departure_date=departure_date, departure_time=departure_time)
+                    if record.get("status") == "no_route":
+                        counts["failed"] += 1
+                    else:
+                        counts["ok"] += 1
+                        if ttl > 0:
+                            cache_dirty = (_cache_structured_route(cache, cache_key, record)
+                                           or cache_dirty)
+                except RouteRequestError as ex:
+                    record = _route_failure(cat, ex.kind, str(ex))
+                    counts["failed"] += 1
+                except Exception as ex:
+                    # A malformed single response must not expose its URL/key or
+                    # prevent later hops from being queried.
+                    record = _route_failure(
+                        cat, "invalid_response",
+                        "route parsing failed ({})".format(type(ex).__name__))
+                    counts["failed"] += 1
+            record["from"] = origin.get("name") or ""
+            record["to"] = destination.get("name") or ""
+            if args.write:
+                destination["route"] = _merge_route_result(
+                    destination.get("route"), record)
+            metrics = []
+            if record.get("distance_m"):
+                metrics.append("{} m".format(record["distance_m"]))
+            if record.get("duration_min"):
+                metrics.append("{} min".format(record["duration_min"]))
+            error = record.get("error") or {}
+            detail = error.get("kind") or " · ".join(metrics)
+            print("  {} -> {}: {} {} [{}]{}".format(
+                origin["name"], destination["name"], record["status"],
+                record["source"], cat, " — " + str(detail) if detail else ""))
+            if estimate and record.get("status") not in ("ok", "partial"):
+                print("    original estimate kept: {}".format(estimate))
+    if args.write:
+        if cache_dirty:
+            try:
+                _atomic_write_json(cache_path, cache)
+            except OSError as ex:
+                warn("结构化路线缓存写回失败，不影响计划写回 ({})".format(
+                    type(ex).__name__))
+        _atomic_write_json(src, plan)
+        print("\nupdated {} in place".format(src))
+    else:
+        print("\ndry run only — pass --write to update route fields and routecache.json")
+    print("routes: {} usable ({} from cache), {} degraded/failed, {} skipped".format(
+        counts["ok"], counts["cache"], counts["failed"], counts["skipped"]))
+
+
 def cmd_poi(args):
     """POI 周边搜索: --at a stop name (plan coordinates) or 'lat,lon' (WGS84);
     prints nearby POIs from the 高德 place/around API with WGS84 coords, so a
@@ -984,7 +1638,7 @@ def cmd_poi(args):
     try:
         pois = _amap_around(c, args.kw, key, radius=args.radius, limit=args.limit)
     except Exception as ex:
-        warn("周边搜索失败: {}".format(ex))
+        warn("周边搜索失败: {}".format(type(ex).__name__))
         sys.exit(1)
     print("POI 周边 «{}» @ {:.5f},{:.5f} (WGS84) 半径 {}m:".format(
         args.kw or "(不限关键词)", c[0], c[1], args.radius))
@@ -1693,7 +2347,7 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn in [("geocode", cmd_geocode), ("check", cmd_check),
-                     ("links", cmd_links), ("kml", cmd_kml), ("sun", cmd_sun),
+                     ("routes", cmd_routes), ("links", cmd_links), ("kml", cmd_kml), ("sun", cmd_sun),
                      ("ics", cmd_ics), ("poi", cmd_poi)]:
         p = sub.add_parser(name, description={
             "check": "Straight-line hop distances, (est) durations, on-foot vs "
@@ -1705,6 +2359,13 @@ def main():
                      "driving/transit minutes replace the (est) for transit/drive "
                      "hops (needs AMAP_KEY; cached in routecache.json; cross-city "
                      "transit falls back to driving ×1.25 折算).",
+            "routes": "Optional structured 高德 walk/transit/driving routes with "
+                       "WGS84 paths, segments, explicit costs and TTL caching. "
+                       "Dry-run by default; --write atomically adds route fields to "
+                       "arriving stops and updates routecache.json. AMAP_KEY is read "
+                       "from the environment only. Each hop fails independently; "
+                       "cross-city transit keeps its estimate and old check --live "
+                       "behaviour is unchanged.",
             "ics": "The gates .ics from the checklist: one VEVENT per row whose "
                    "deadline carries an ISO date or a T-N marker (T-14 = days[0].date "
                    "- 14), floating local time at --hour (default 09:00), DTEND +1 h, "
@@ -1757,6 +2418,15 @@ def main():
             p.add_argument("--hour", default="09:00", help="floating local time of every gate (HH:MM)")
             p.add_argument("--sequence", type=int, default=0,
                            help="SEQUENCE for every VEVENT — bump it on each plan change")
+        if name == "routes":
+            p.add_argument("--write", action="store_true",
+                           help="atomically write days[].stops[].route and the TTL "
+                                "cache; without it only print results")
+            p.add_argument("--strategy", type=int, default=0,
+                           help="AMap route strategy (default 0); included in cache keys")
+            p.add_argument("--ttl", type=int, default=86400,
+                           help="successful route cache TTL in seconds (default 86400; "
+                                "0 disables structured-route caching)")
         if name == "links":
             p.add_argument("--write", action="store_true",
                            help="inject the URLs into the plan's hop rows and "

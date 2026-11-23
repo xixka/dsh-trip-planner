@@ -122,6 +122,37 @@
    **>20 km** it prints "use the operator timetable" instead of a number — obey it
    (大兴机场线 草桥→大兴机场 is 19 min; the formula gave 40-60 min). Catch these
    BEFORE scheduling, not after.
+3a. **Optional** `... routes plan.geo.json [--write] [--strategy 0] [--ttl 86400]`
+   — upgrade real minutes to structured walk / transit / drive routes. The legacy
+   `_amap_direction_minutes` and `check --live` paths are unchanged, and `check`
+   never writes route fields into the plan. `routes` is a dry-run until `--write`;
+   without `AMAP_KEY` it leaves the plan, estimates and deep links untouched. It
+   deliberately has no `--amap-key` argument: use the environment or git-ignored
+   `.env`, never a command line, fixture, cache, log or HTML file.
+   - Requests convert WGS84→GCJ-02; returned polylines are converted back before
+     writing. Walk / drive candidates and transit alternatives are filtered for
+     usable fields and ranked by the requested strategy (fare / transfers / walking
+     where applicable, then duration and distance), not by API position. When the
+     integrated transit response omits total distance, it is summed only if every
+     segment has one and marked `distance_basis:"segments_sum"`. A valid plan date
+     and explicit hop-row start HH:MM are sent as date/time together; otherwise no
+     departure is invented. Transit segments retain metro transfers, explicit direction,
+     boarding/alighting stops and station counts. Missing fare/direction/path is
+     unknown; no zero-duration or empty-line success is emitted.
+   - Cache identity includes both endpoints, mode, both citycodes, strategy and
+     day/row time semantics. Only ok/partial responses are cached, with TTL
+     (`--ttl 0` disables). QPS/timeout/network errors have one bounded retry,
+     classified status/error and per-hop isolation; failures are not negative-
+     cached. `--write` is atomic and does not clear manual timeline fields.
+   - Same-city transit requires equal known citycodes. Missing/different citycodes
+     produce `degraded` + estimated source without relabelling a driving path as
+     transit. Legacy `check --live` retains its documented driving ×1.25 折算。
+   - Route data lives on the arriving stop as `route`; see output-template.md for
+     the schema. Run `python3 -m unittest discover -s tests -p 'test_*.py'` for
+     offline fixtures (all modes, transfers, no route, missing fields, QPS,
+     timeout, cross-city, cache, compatibility and HTML key/URL leakage). CI never
+     calls the real service. A real-device/browser spot-check is optional and
+     read-only; if not done, say it was not done.
 4. `... links plan.geo.json --write [--provider amap|baidu]` — per-hop deep
    links (mode from each stop's `mode`, else guessed from distance), written straight
    into the timeline's hop rows. CN 版默认 amap（大陆可点开）；两个 provider 都只出

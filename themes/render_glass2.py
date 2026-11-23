@@ -85,7 +85,8 @@ import pathlib
 import sys
 
 from theme_common import (LUCIDE, T, add_art_arg, asset_count, brief_titles, data_uri,
-                          day_embed_url, esc, export_js, export_prefix, init_lang, lang,
+                          day_embed_url, day_map_note_html, route_detail,
+                          esc, export_js, export_prefix, init_lang, lang,
                           load_art, load_plan, short_dates, theme_name, title_head,
                           title_kick)
 
@@ -206,7 +207,8 @@ def tl_rows(day):
                f' aria-label="{esc(t("nav_in_maps"))}{esc(r.get("what", "")[:16])}">{ic("pin")}</a>'
                if r.get("link") else "")
         rows.append(f'<div class="li k-{kind}"><span class="tchip">{esc(r.get("t",""))}{est}</span>'
-                    f'<span class="w">{et(r.get("what",""))}{price}{chip}{nav}</span></div>')
+                    f'<span class="w">{et(r.get("what",""))}{price}{chip}{nav}'
+                    f'{route_detail(r.get("_route"))}</span></div>')
     return "".join(rows)
 
 
@@ -237,7 +239,8 @@ def day_block(i, day, art, zone):
     # opened iframe would rasterise as a blank box — strip it from captures
     embed_html = (f'<details class="mapfold no-export"><summary class="cta">{ic("compass")} {esc(t("route_map"))}</summary>'
                   f'<div class="map-embed" data-src="{esc(embed)}" data-done="1">'
-                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}"></div></details>' if embed else "")
+                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}">'
+                  f'{day_map_note_html(day)}</div></details>' if embed else "")
     return f"""
 <section class="day reveal" id="d{i}" data-zone="{esc(zone)}">
   <header class="dhead">
