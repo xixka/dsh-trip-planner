@@ -28,7 +28,8 @@ import pathlib
 
 __all__ = [
     "TAG_PRETTY", "esc", "et", "ic", "sprite", "set_icon_base",
-    "data_uri", "day_embed_url", "dist_km", "load_plan", "norm_plan", "PLAN_SHAPE", "LUCIDE", "asset_count",
+    "data_uri", "day_embed_url", "day_map_note_html", "route_detail",
+    "dist_km", "load_plan", "norm_plan", "PLAN_SHAPE", "LUCIDE", "asset_count",
     "Art", "load_art", "add_art_arg", "short_dates", "export_prefix", "title_kick", "title_head",
     "add_asset_dir", "asset_dirs", "date_span", "BRIEF_TITLES", "BRIEF_TITLES_EN", "brief_titles",
     "STRINGS", "THEME_NAMES", "set_lang", "lang", "T", "tag_pretty", "theme_name", "weekday", "init_lang", "ASSETS",
@@ -310,34 +311,184 @@ def _amap_static_key():
     return ""
 
 
+def _valid_route_path(route, origin=None, destination=None):
+    if not isinstance(route, dict) or route.get("status") not in ("ok", "partial"):
+        return []
+    if origin is not None and route.get("from") and route.get("from") != origin.get("name"):
+        return []
+    if destination is not None and route.get("to") and route.get("to") != destination.get("name"):
+        return []
+    points = []
+    for point in route.get("path") or []:
+        try:
+            lat, lon = float(point[0]), float(point[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if math.isfinite(lat) and math.isfinite(lon):
+            points.append((lat, lon))
+    return points if len(points) >= 2 else []
+
+
+def _cap_static_path(points, limit=80, protected=()):
+    """Bound URL length while retaining endpoints and transit transfer points."""
+    if len(points) <= limit:
+        return points
+    lookup = {point: i for i, point in enumerate(points)}
+    keep = {0, len(points) - 1}
+    for point in protected:
+        if point in lookup:
+            keep.add(lookup[point])
+    if len(keep) > limit:
+        ordered = sorted(keep)
+        keep = {ordered[round(i * (len(ordered) - 1) / (limit - 1))]
+                for i in range(limit)}
+    slots = limit - len(keep)
+    for i in range(1, slots + 1):
+        keep.add(round(i * (len(points) - 1) / (slots + 1)))
+    idx = 0
+    while len(keep) < limit:
+        keep.add(idx)
+        idx += 1
+    return [points[i] for i in sorted(keep)]
+
+
+def _mapped_stops(day):
+    mapped = []
+    for stop in day.get("stops") or []:
+        try:
+            lat, lon = float(stop["lat"]), float(stop["lon"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        mapped.append((stop, lat, lon))
+    return mapped
+
+
+def _day_hop_paths(day):
+    mapped = _mapped_stops(day)
+    paths = []
+    for (origin, alat, alon), (destination, blat, blon) in zip(mapped, mapped[1:]):
+        route = destination.get("route")
+        path = _valid_route_path(route, origin, destination)
+        real = bool(path)
+        if real:
+            protected = []
+            for segment in route.get("segments") or []:
+                for key in (0, -1):
+                    try:
+                        point = segment["path"][key]
+                        protected.append((float(point[0]), float(point[1])))
+                    except (KeyError, IndexError, TypeError, ValueError):
+                        continue
+            path = _cap_static_path(path, protected=protected)
+        else:
+            path = [(alat, alon), (blat, blon)]
+        paths.append((path, real))
+    return mapped, paths
+
+
+def day_map_note_html(day):
+    _, paths = _day_hop_paths(day)
+    if not paths:
+        return ""
+    real = sum(1 for _, present in paths if present)
+    if real == len(paths):
+        return ""
+    text = ("部分为直线示意" if real else "站点连线示意") if lang() == "zh" else (
+        "Some hops are straight-line sketches" if real else "Stop-to-stop sketch")
+    return '<div class="map-note">{}</div>'.format(esc(text))
+
+
+def _format_cost(cost):
+    if not isinstance(cost, dict):
+        return ""
+    amount = cost.get("amount")
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+        return ""
+    label = ("票价" if cost.get("kind") == "transit_fare" else "通行费") if lang() == "zh" else (
+        "fare" if cost.get("kind") == "transit_fare" else "tolls")
+    currency = "¥" if cost.get("currency", "CNY") == "CNY" else str(cost.get("currency")) + " "
+    return "{} {}{:g}".format(label, currency, amount)
+
+
+def _route_text(route):
+    if not isinstance(route, dict) or route.get("status") not in ("ok", "partial"):
+        return ""
+    zh = lang() == "zh"
+    overall = []
+    if route.get("distance_m"):
+        distance = route["distance_m"]
+        overall.append("{:.1f} km".format(distance / 1000) if distance >= 1000
+                       else "{} m".format(distance))
+    if route.get("duration_min"):
+        overall.append("{} min".format(route["duration_min"]))
+    cost = _format_cost(route.get("cost"))
+    if cost:
+        overall.append(cost)
+    parts = []
+    for segment in route.get("segments") or []:
+        if not isinstance(segment, dict):
+            continue
+        bits = []
+        if segment.get("mode") == "walk" and (segment.get("duration_min") or segment.get("distance_m")):
+            bits.append("步行" if zh else "walk")
+        if segment.get("line"):
+            bits.append(str(segment["line"]))
+        if segment.get("direction"):
+            bits.append(("往{}" if zh else "towards {}").format(segment["direction"]))
+        if segment.get("from") and segment.get("to"):
+            bits.append("{} → {}".format(segment["from"], segment["to"]))
+        if segment.get("station_count") is not None:
+            bits.append(("途经{}站" if zh else "{} stops").format(segment["station_count"]))
+        if segment.get("duration_min"):
+            bits.append("{} min".format(segment["duration_min"]))
+        if bits:
+            parts.append(" · ".join(bits))
+    if overall:
+        parts.insert(0, " · ".join(overall))
+    return " / ".join(parts)
+
+
+def route_detail(route):
+    text = _route_text(route)
+    if not text:
+        return ""
+    return (' <span class="route-data" data-route-source="{}"> · {}: {}</span>'
+            .format(esc(route.get("source", "live")), "高德" if lang() == "zh" else "AMap",
+                    esc(text)))
+
+
+def _attach_route_rows(plan):
+    """Expose stop.route on aligned hop rows in memory only (never writes JSON)."""
+    for day in plan.get("days") or []:
+        mapped = [stop for stop in day.get("stops") or []
+                  if stop.get("lat") is not None and stop.get("lon") is not None]
+        rows = [row for row in day.get("timeline") or []
+                if row.get("kind") == "hop" and row.get("map") is not False]
+        if len(rows) != max(0, len(mapped) - 1):
+            continue
+        for row, destination in zip(rows, mapped[1:]):
+            route = destination.get("route")
+            if isinstance(route, dict):
+                row["_route"] = route
+
+
 _STATICMAP_UA = {"User-Agent": "trip-planner-cn/1.0 (static map tile fetch)"}
 _STATICMAP_CACHE = {}   # url-without-key -> data uri | None (failed keys too)
 
 
 def day_embed_url(day, max_hop_km=150):
-    """Day map image — domestic build via the 高德静态地图 API (Web 服务).
+    """Return an embedded AMap PNG, enhanced hop-by-hop with optional real paths.
 
-    Replaces the removed keyless maps.google.com iframe: at RENDER time the
-    day's stop coordinates (WGS84, GCJ-02-corrected) are drawn into one
-    static PNG with a numbered marker per stop and a connecting path, and the
-    bytes are base64-baked into the HTML. Consequences:
-      * no external iframe / no runtime network for the visitor — works
-        offline, and qc.py's empty host whitelist stays valid (data URI);
-      * the AMAP_KEY is used only by the renderer process and NEVER appears
-        in the output HTML;
-      * without a key, or on any fetch error, returns "" and the renderer
-        simply hides the "路线地图" fold (same graceful degrade as before);
-      * identical coordinate sets reuse a memoised fetch within one render.
+    A successful route.path is thick blue; a missing hop path stays a thin grey
+    straight line (the static API has no dash parameter). With no paths at all the original stop-polyline request is
+    retained. The companion day_map_note_html() labels either fallback. Keys and
+    request URLs remain process-local; only PNG bytes enter the HTML.
     """
     import urllib.parse
     import urllib.request
 
-    pts = []
-    for s in (day.get("stops") or []):
-        try:
-            pts.append((float(s["lat"]), float(s["lon"])))
-        except (KeyError, TypeError, ValueError):
-            continue
+    mapped, hop_paths = _day_hop_paths(day)
+    pts = [(lat, lon) for _, lat, lon in mapped]
     if len(pts) < 2:
         return ""
     key = _amap_static_key()
@@ -345,49 +496,56 @@ def day_embed_url(day, max_hop_km=150):
         return ""
 
     gpts = [_wgs84_to_gcj02(lat, lon) for lat, lon in pts]
-    lats = [p[0] for p in gpts]
-    lons = [p[1] for p in gpts]
+    has_real = any(real for _, real in hop_paths)
+    if has_real:
+        ghops = [([_wgs84_to_gcj02(lat, lon) for lat, lon in path], real)
+                 for path, real in hop_paths]
+        fit_points = gpts + [point for path, _ in ghops for point in path]
+        groups = []
+        for path, real in ghops:
+            style = "8,0x1E6FFF,0.85,," if real else "4,0x7A8A99,0.65,,"
+            groups.append("{}:{}".format(
+                style, ";".join("{:.6f},{:.6f}".format(lon, lat)
+                                for lat, lon in path)))
+        path = "paths=" + "|".join(groups)
+    else:
+        # Preserve the old image exactly when no structured path is available.
+        fit_points = gpts
+        path = "paths=8,0x1E6FFF,0.85,,:{}".format(
+            ";".join("{:.6f},{:.6f}".format(lon, lat) for lat, lon in gpts))
+    lats = [p[0] for p in fit_points]
+    lons = [p[1] for p in fit_points]
 
-    # Zoom must fit BOTH axes of a wide 720x340 frame (a naive max-span pick
-    # clips tall/narrow bboxes vertically): solve Web-Mercator deg/px per axis,
-    # keep the smaller zoom. Empirically the amap zoom scale runs ~1.2 levels
-    # denser than the standard 256px-tile definition (calibrated on a 0.36°
-    # route: computed 11.27 fit exactly at amap zoom 10) — subtract 1.2, then
-    # int() truncation adds a further ~0.5 slack.
-    PAD = 40                       # px kept clear for edge pins/labels
+    # Fit BOTH axes; keep the existing calibrated AMap zoom semantics.
+    PAD = 40
     dlat = max(max(lats) - min(lats), 1e-4)
     dlon = max(max(lons) - min(lons), 1e-4)
     z_lat = math.log2(360.0 * (340 - 2 * PAD) / (256.0 * dlat))
     z_lon = math.log2(360.0 * (720 - 2 * PAD) / (256.0 * dlon))
     zoom = max(3, min(17, int(min(z_lat, z_lon) - 1.2)))
 
-    # API quirk (verified empirically): only the FIRST `markers=` group is
-    # drawn, and its multi-point form is semicolon-separated with ONE shared
-    # label — `markers=mid,0xC,A:x1,y1;x2,y2` renders every pin, while the
-    # pipe-separated / multiple-param forms silently drop all but one pin.
     mk = "markers=mid,0x1E6FFF,A:{}".format(
-        ";".join("{:.6f},{:.6f}".format(lon, lat) for lat, lon in gpts))
-    path = "paths=8,0x1E6FFF,0.85,,:{}".format(
         ";".join("{:.6f},{:.6f}".format(lon, lat) for lat, lon in gpts))
     loc = "{:.6f},{:.6f}".format(
         (min(lons) + max(lons)) / 2, (min(lats) + max(lats)) / 2)
-    base = "https://restapi.amap.com/v3/staticmap?zoom={}&size=720*340&location={}&{}&{}&key=".format(
-        zoom, loc, mk, path)
+    base = ("https://restapi.amap.com/v3/staticmap?zoom={}&size=720*340"
+            "&location={}&{}&{}&key=".format(zoom, loc, mk, path))
 
-    memo = _STATICMAP_CACHE.get(base)
-    if memo is not None:
+    if base in _STATICMAP_CACHE:
+        memo = _STATICMAP_CACHE[base]
         return memo if memo else ""
     try:
         url = base + urllib.parse.quote(key)
         req = urllib.request.Request(url, headers=_STATICMAP_UA)
-        with urllib.request.urlopen(req, timeout=25) as r:
-            raw = r.read()
+        with urllib.request.urlopen(req, timeout=25) as response:
+            raw = response.read()
         if not raw.startswith(b"\x89PNG"):
             raise RuntimeError("staticmap non-PNG response")
         uri = "data:image/png;base64," + base64.b64encode(raw).decode()
     except Exception as ex:
+        # HTTPError text contains request.full_url (and therefore the key).
         print("WARN: staticmap fetch failed for {} — map fold hidden ({})".format(
-            day.get("date", "?"), ex), file=os.sys.stderr)
+            day.get("date", "?"), type(ex).__name__), file=os.sys.stderr)
         _STATICMAP_CACHE[base] = None
         return ""
     _STATICMAP_CACHE[base] = uri
@@ -476,6 +634,7 @@ def norm_plan(plan, warn=None):
         for sub in ("timeline", "stops"):
             if sub in d and not (isinstance(d[sub], list) and all(isinstance(r, dict) for r in d[sub])):
                 d[sub] = fix_list(f"days[{i}].{sub}", d[sub], dict, ())
+    _attach_route_rows(plan)
     return plan
 
 

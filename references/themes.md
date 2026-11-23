@@ -541,7 +541,13 @@ images never `loading=lazy`; itinerary grids never `grid-auto-flow:dense`.
   `theme_common.day_embed_url` 渲染时用 `AMAP_KEY` 调 restapi.amap.com/v3/staticmap，
   把每天途经点（WGS84→GCJ02）画成 720×340 PNG（编号标记+连线，zoom 双轴自适应），
   base64 烙进 HTML——离线可看、key 绝不进成品页、外链白名单不变；无 key 或取图失败
-  时静默回退隐藏折叠块。已知 API 陷阱（勿踩）：**多个 markers= 参数只渲染第一组**，
+  时静默回退隐藏折叠块。`routes --write` 提供到达站点 `route.path` 后，各跳使用
+  真实折线（蓝色粗线）；缺 path 的跳用灰色细线并注“部分为直线示意”（静态 API
+  无虚线参数，基础 SVG 才用虚线）。全部无 path 时保留
+  旧站点 polyline 并注“站点连线示意”。路径限制点数，保留起终点和换乘段端点；zoom
+  同时容纳真实路径。只有 `ok|partial` 且端点匹配的路径可用，失败记录下的旧 path 不会
+  冒充新结果。`day_map_note_html` 给七个主题统一注记，`route_detail` 只输出实际存在的
+  线路、方向、上下车站、站数/时长和费用，原深链不动。已知 API 陷阱（勿踩）：**多个 markers= 参数只渲染第一组**，
   必须单参数分号分隔坐标；高德 zoom 比标准 Web Mercator 密约 1.2-1.5 级，zoom 公式
   已按双轴+偏移校准，勿改回朴素 max-span。点击导航仍走 amap/baidu 逐跳深链。
 - **Smooth-scroll fallback**: the in-app browser ignores `scroll-behavior` and

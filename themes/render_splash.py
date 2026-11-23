@@ -167,7 +167,8 @@ import random
 import re
 
 from theme_common import (T, add_art_arg, asset_count, brief_titles,
-                          data_uri, day_embed_url, esc, et, export_js, export_prefix,
+                          data_uri, day_embed_url, day_map_note_html, route_detail,
+                          esc, et, export_js, export_prefix,
                           ic, init_lang, lang, load_art, load_plan, short_dates, sprite, title_head,
                           tag_pretty, theme_name, title_kick)
 
@@ -654,7 +655,7 @@ def render_timeline(day):
             f'<div class="row k-{esc(kind)}">'
             f'<div class="t">{esc(r.get("t", ""))}{est}</div>'
             f'<div class="w">{ic(icn, icls)}{et(r.get("what", ""))}{price}'
-            f'{tag_html(r.get("tag", ""))}{nav}</div></div>')
+            f'{tag_html(r.get("tag", ""))}{nav}{route_detail(r.get("_route"))}</div></div>')
     return "".join(rows)
 
 
@@ -689,7 +690,7 @@ def map_fold(day):
         return ""
     embed_html = (f'<div class="map-embed" data-src="{esc(embed)}" data-done="1">'
                   f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}">'
-                  '</div>' if embed else "")
+                  f'{day_map_note_html(day)}</div>' if embed else "")
     btns = f'<div class="hop-btns">{"".join(links)}</div>' if links else ""
     label = t("map_label").format(len(links)) if links else T("sec.map")
     return (f'<details class="mapfold"><summary>{ic("compass")} {esc(label)} '

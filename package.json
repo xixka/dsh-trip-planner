@@ -34,8 +34,8 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "test": "node tests/plugin.test.mjs",
-    "prepublishOnly": "node tests/plugin.test.mjs"
+    "test": "node tests/plugin.test.mjs && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "prepublishOnly": "npm test"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-skill": ">=0.1.0-rc.1 <0.2.0-0 || >=0.1.1-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0 || >=0.2.1-rc.1 <0.3.0-0"

@@ -59,6 +59,10 @@ def check(path):
         fails.append("external <link>")
     if re.search(r'<script[^>]+src="https?://', s):
         fails.append("external <script>")
+    if "restapi.amap.com" in s or "AMAP_KEY" in s:
+        fails.append("AMap key/request material leaked into HTML")
+    if re.search(r'[?&](?:key|ak)=[^&"\\s]+', s, re.I):
+        fails.append("credential-bearing request URL leaked into HTML")
 
     # 2. no-JS survival ---------------------------------------------------
     if ".reveal" in style or ".lay" in style:

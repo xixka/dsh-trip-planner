@@ -339,7 +339,9 @@ never stall silently or invent a script's output.
   GCJ02→WGS84;百度回退 `BAIDU_MAP_AK`/`--baidu-ak`), distance-check clustering, emit
   per-hop map links and the trip KML; subcommands geocode / check (`--live` 用高德
   direction API 真实驾车/公交分钟数替代 (est),缓存 routecache.json,跨城公交降级
-  驾车×1.25 折算) / links / kml / ics (the gates `.ics` from the checklist's dated
+  驾车×1.25 折算) / routes (可选结构化步行/公交/驾车路线,默认干跑,`--write`
+  原子写到达站点 route,WGS84 path+segments+明确费用,TTL 缓存;key 仅环境/.env;
+  单跳失败隔离,旧 check 行为与人工结果不变) / links / kml / ics (the gates `.ics` from the checklist's dated
   rows — `-o gates.ics`, bump `--sequence` on every plan change) /
   poi (周边 POI 搜索 `--at 止名|纬度,经度 --kw 地铁站|餐饮 --radius`,结果 WGS84
   坐标可直接填回 plan;需 key) /
