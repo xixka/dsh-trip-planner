@@ -70,7 +70,8 @@ import pathlib
 import sys
 
 from theme_common import (LUCIDE, T, add_art_arg, asset_count, brief_titles, data_uri,
-                          day_embed_url, esc, export_js, export_prefix, init_lang, lang,
+                          day_embed_url, day_map_note_html, route_detail,
+                          esc, export_js, export_prefix, init_lang, lang,
                           load_art, load_plan, short_dates, theme_name, title_head,
                           title_kick)
 
@@ -155,7 +156,8 @@ def ledger_rows(day):
                if r.get("link") else "")
         rows.append(
             f'<div class="row k-{kind}" role="listitem"><span class="t">{esc(r.get("t",""))}{est}</span>'
-            f'<span class="w">{et(r.get("what",""))}{price}{chip}</span>'
+            f'<span class="w">{et(r.get("what",""))}{price}{chip}'
+            f'{route_detail(r.get("_route"))}</span>'
             f'<span class="n">{nav}</span></div>')
     return "".join(rows)
 
@@ -193,7 +195,8 @@ def chapter(i, day, art, day_plate, default_plate):
     embed = day_embed_url(day)
     embed_html = (f'<details class="mapfold"><summary>{ic("compass")} {esc(t("route_map"))}</summary>'
                   f'<div class="map-embed" data-src="{esc(embed)}" data-done="1">'
-                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}"></div></details>' if embed else "")
+                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}">'
+                  f'{day_map_note_html(day)}</div></details>' if embed else "")
     plate = day_plate.get(date, day_plate.get(str(i), default_plate))
     return f"""
 <section class="chapter" id="d{i}" data-layer="{plate}"

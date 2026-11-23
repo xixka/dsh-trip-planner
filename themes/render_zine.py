@@ -108,7 +108,8 @@ import re
 import urllib.parse
 
 from theme_common import (Art, LUCIDE, T, add_art_arg, asset_count, brief_titles,
-                          data_uri, day_embed_url, esc, et, export_js, export_prefix, ic,
+                          data_uri, day_embed_url, day_map_note_html, route_detail,
+                          esc, et, export_js, export_prefix, ic,
                           init_lang, lang, load_art, load_plan, short_dates, theme_name, title_head,
                           title_kick)
 
@@ -529,7 +530,8 @@ def render_timeline(day):
         rows.append(
             f'<div class="r k-{kind}">'
             f'<span class="t">{esc(r.get("t", ""))}{est}</span>'
-            f'<span class="w">{et(r.get("what", ""))} {price}{tag}{nav}{note}</span>'
+            f'<span class="w">{et(r.get("what", ""))} {price}{tag}{nav}{note}'
+            f'{route_detail(r.get("_route"))}</span>'
             f'</div>')
     return f'<div class="tl reveal">{"".join(rows)}</div>'
 
@@ -546,7 +548,8 @@ def render_mapfold(day):
     if not (embed or links):
         return ""
     embed_html = (f'<div class="map-embed" data-src="{esc(embed)}" data-done="1">'
-                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}"></div>'
+                  f'<img class="map-img" src="{esc(embed)}" alt="{esc(t("route_map"))}">'
+                  f'{day_map_note_html(day)}</div>'
                   if embed else "")
     btns = f'<div class="hops">{"".join(links)}</div>' if links else ""
     return (f'<details class="mapfold reveal"><summary>{ic("compass")} '

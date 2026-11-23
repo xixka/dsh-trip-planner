@@ -35,7 +35,7 @@ to crash on it, and `legs` still prints every cell blank).
            "timeline": [{"t", "what", "kind", "price", "note", "tag", "verify",
                          "link", "map"}],
            "hop_links": ["url", ...],           // written by links --write when parked
-           "stops": [{"name", "query", "lat", "lon", "mode"}]}],
+           "stops": [{"name", "query", "lat", "lon", "mode", "citycode", "route"}]}],
  "hotels": [{"base", "area", "why", "options": [{"name", "band", "link"}]}],
  "budget": [{"cat", "per_person", "total", "note"}],   // a LIST of rows, not {rows:[]}
  "brief":  {"emergency", "safety", "health", "holidays", "weather", "money",
@@ -315,6 +315,21 @@ Field discipline (the merge breaks without it):
   `links --write` place every URL automatically. Lodging→first-stop and
   last-stop→lodging rows, and rides that are themselves the sight (游船, 景交车,
   轮渡) are the two places this slips — see navigation.md step 1.
+- Optional `stops[].route` is written only by `route_tools.py routes --write` on the
+  **arriving** stop. Shape: `{mode, distance_m, distance_basis, duration_min, cost,
+  segments, path, provider, queried_at, status, error, source, from, to}`.
+  `distance_basis:"segments_sum"` means the provider omitted total distance and all
+  explicit segment distances were summed; any missing segment distance leaves the
+  total unknown. `source` is exactly
+  `live|cache|estimated`; `status` is `ok|partial|no_route|error|degraded`.
+  `path` and each segment path are bounded WGS84 `[[lat, lon], …]` arrays (never
+  GCJ-02 request coordinates). `segments[]` may carry `mode`, `line`, explicit
+  `direction`, `from`/`to` stop names, `station_count`, distance/duration and path;
+  absent facts are omitted, never guessed. `cost` is present only for an explicit
+  provider value: `{amount, currency:"CNY", kind:"transit_fare"|"road_tolls"}`.
+  Failed records keep the old timeline text, manual price and deep link; old JSON
+  without `route` needs no migration. Renderers attach details to hop rows only
+  when the same N⇒N−1 alignment holds, and only consume `ok|partial` data.
 - `sun` is written by `route_tools.py sun --write` in the canonical shape
   `天亮 HH:MM · ☀ HH:MM / 🌇 HH:MM · CST · 本地天文计算` — for an `en` plan
   (`plan.lang`, or `sun --lang en`) the dawn word is `dawn`:
