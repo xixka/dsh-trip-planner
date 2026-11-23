@@ -113,7 +113,7 @@ python themes/qc.py trip-illustrated.html
 ## 核心特性
 
 - **逐小时每日计划**：营业时间、闭馆日、预约政策全部用工具核实后写入，每一跳都有高德/百度地图链接。
-- **跨城交通深链**：机票/火车票日期网格翻译成携程 / Trip.com / 去哪儿 / 12306 的直达链接，价格点开链接核对，不编造。
+- **跨城交通深链 + 可选铁路实时查询**：机票/火车票日期网格翻译成携程 / Trip.com / 去哪儿 / 12306 的直达链接，价格点开链接核对，不编造；配置本地 MCP 后可查 12306 直达、席别余票/票价、中转与经停，失败完整回退深链。
 - **住宿与预算**：按片区给出酒店候选（带日期深链）、人民币预算汇总、按截止日排序的预订清单。
 - **行前简报**：应急号码、气象预警、假日调休、支付分层、离线地图准备，全部境内数据源。
 - **图片三级策略**：内置素材库优先 → 模型原生生图 → 境内生图 key（阿里云百炼 / 硅基流动），任何一档下页面都完整交付。
@@ -128,6 +128,7 @@ python themes/qc.py trip-illustrated.html
 | `BAIDU_MAP_AK` | 百度地理编码回退 | 跳过回退 |
 | `DASHSCOPE_API_KEY` / `SILICONFLOW_API_KEY` | 境内生图 | 图片走素材库或原生能力 |
 | `TRIP_MAP_PROVIDER` | 深链服务商，`amap`（默认）或 `baidu` | 用默认高德 |
+| `TRAIN_LIVE_MCP_COMMAND` | 非秘密的本地 12306 stdio MCP 启动命令 | 铁路仅使用 12306/携程深链 |
 
 **申请高德 key**：在高德开放平台（lbs.amap.com）注册并实名认证后创建应用，key 类型选「Web 服务」，个人开发者免费额度充足。拿到 key 后，在 skill 根目录建一个 `.env` 文件（参照 [.env.example](.env.example)）写入 `AMAP_KEY=你的key` 即可，脚本会自动读取。
 
@@ -152,7 +153,11 @@ python themes/qc.py trip-illustrated.html
 python scripts/route_tools.py routes plan.geo.json           # 只查询和打印，不写文件
 python scripts/route_tools.py routes plan.geo.json --write   # 显式写回路线与缓存
 python scripts/flight_scan.py --from 杭州 --to 青岛 --depart 2026-10-26 --nights 4   # 机票/火车票深链网格
+python scripts/train_live.py direct --from 北京南 --to 上海虹桥 --date 2026-12-01  # 可选铁路查询/深链回退
 python scripts/plan_lint.py plan.geo.json --strict    # 渲染前内容门禁
+
+# 实时铁路的上游核验、显式本地安装、状态与 fixtures（未实测真实 12306）见：
+# references/train-live.md
 ```
 
 ## 数据来源
@@ -162,7 +167,7 @@ python scripts/plan_lint.py plan.geo.json --strict    # 渲染前内容门禁
 | 数据源 | 用途 |
 |---|---|
 | 高德 / 百度开放平台 | 坐标解析、实时时距、周边 POI、静态路线图 |
-| 12306 / 携程 / 去哪儿 / Trip.com | 机票与火车票深链 |
+| 12306 / 携程 / 去哪儿 / Trip.com | 机票与火车票深链；可选本地 MCP 铁路查询 |
 | timor.tech + 国务院放假安排 | 法定节假日与调休 |
 | Open-Meteo / 中央气象台 | 天气预报与气象预警 |
 | 本地 NOAA 天文模型 | 日出日落（零网络） |

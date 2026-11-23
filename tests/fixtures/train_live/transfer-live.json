@@ -1,0 +1,12 @@
+{
+  "tool": "get-interline-tickets",
+  "sample_date": "2026-08-01",
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "[{\"same_station\": true, \"same_train\": false, \"ticketList\": [{\"train_no\": \"internal-G101\", \"start_train_code\": \"G101\", \"start_date\": \"2026-08-15\", \"start_time\": \"07:00\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"10:00\", \"lishi\": \"04:30\", \"from_station\": \"北京南\", \"to_station\": \"南京南\", \"from_station_telecode\": \"VNP\", \"to_station_telecode\": \"NKH\", \"prices\": [{\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"8\", \"price\": 300, \"discount\": null}], \"dw_flag\": []}, {\"train_no\": \"internal-G203\", \"start_train_code\": \"G203\", \"start_date\": \"2026-08-15\", \"start_time\": \"11:00\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"13:00\", \"lishi\": \"04:30\", \"from_station\": \"南京南\", \"to_station\": \"上海虹桥\", \"from_station_telecode\": \"NKH\", \"to_station_telecode\": \"AOH\", \"prices\": [{\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"有\", \"price\": 200, \"discount\": null}], \"dw_flag\": []}]}, {\"same_station\": false, \"same_train\": false, \"ticketList\": [{\"train_no\": \"internal-G105\", \"start_train_code\": \"G105\", \"start_date\": \"2026-08-15\", \"start_time\": \"08:00\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"11:00\", \"lishi\": \"04:30\", \"from_station\": \"北京南\", \"to_station\": \"南京南\", \"from_station_telecode\": \"VNP\", \"to_station_telecode\": \"NKH\", \"prices\": [{\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"5\", \"price\": 300, \"discount\": null}], \"dw_flag\": []}, {\"train_no\": \"internal-G207\", \"start_train_code\": \"G207\", \"start_date\": \"2026-08-15\", \"start_time\": \"11:45\", \"arrive_date\": \"2026-08-15\", \"arrive_time\": \"15:00\", \"lishi\": \"04:30\", \"from_station\": \"南京\", \"to_station\": \"上海虹桥\", \"from_station_telecode\": \"NJH\", \"to_station_telecode\": \"AOH\", \"prices\": [{\"seat_name\": \"二等座\", \"short\": \"ze\", \"seat_type_code\": \"O\", \"num\": \"4\", \"price\": 200, \"discount\": null}], \"dw_flag\": []}]}]"
+      }
+    ]
+  }
+}

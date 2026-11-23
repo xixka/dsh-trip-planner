@@ -74,7 +74,12 @@
    "price": "PLACEHOLDER — 见 flight_scan 深链核对",
    "bags": "高铁无重量限制，超规需托运",
    "link": "PLACEHOLDER — flight_scan train deep link",
-   "backup": "second-best option"
+   "backup": "second-best option",
+   "refund_change": "PLACEHOLDER — 12306 / carrier refund and change rule",
+   "rail_live": {
+    "schema_version": 1,
+    "status": "unverified"
+   }
   }
  ],
  "days": [
