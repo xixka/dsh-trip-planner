@@ -2,7 +2,8 @@
 
 > 逆向对象：Windy Android 51.3.2（com.windyty.android，APKMirror 4arch/6dpi 构建）
 > 验证日期：2026-11-23 / 11-24（全部端点经代理实测，含北京坐标）
-> 状态：**全部天气查询端点已逆向完毕，零遗留**；配套实现 `scripts/windy_fetch.py`
+> 状态：**全部免费数据功能已逆向并实现，零遗留**（见 §1.1 功能覆盖矩阵）；
+> 配套实现 `scripts/windy_fetch.py`（19 个子命令）
 > 本文档是 Windy 数据源的权威参考；`references/data-sources.md` 的 Weather 章节只保留接入要点
 
 ---
@@ -17,6 +18,39 @@ Windy Android 是 **Capacitor 混合应用**：原生壳 + 内嵌完整 Web 端 
 
 本项目已排除地图瓦片类接口（有高德/百度地图），因此 ims/rdr/sat 瓦片域名不在
 接入范围。
+
+### 1.1 免费功能覆盖矩阵（核实于 2026-11-24）
+
+| Windy 免费功能 | 端点 | windy_fetch 子命令 | 状态 |
+|---|---|---|---|
+| 多模型点预报（gfs/icon-global/ecmwf-hres/区域模型） | `/forecast/point/*` | `forecast` | ✅ 实现+实测 |
+| 当前实况 | `/forecast/point/now/*` | `now` | ✅ |
+| 空气质量 AQI | `/forecast/airq/cams-global/*` | `aqi` | ✅ |
+| CAP 气象预警 | `/capalerts/{lat}/{lon}` | `alerts` | ✅ |
+| 台风/热带气旋（目录+详情+计数） | `/tc/v2/*` | `storms` | ✅ |
+| 闪电（热区/近 60 分钟） | `/blitz/v3/*` | `lightning` | ✅（60mins 波动，默认 hot） |
+| 高程（单点+路线剖面） | `/services/elevation`、`/rplanner/v1/elevation` | `elevation` | ✅ |
+| 航线沿线天气 | `/rplanner/v1/forecast/{mode}/*` | `route` | ✅ |
+| 附近站点/机场 POI | `/pois/v2/{ident}/*` | `stations`、`pois` | ✅（ident: stations/ad/tide/airq/radiosonde） |
+| 火点（NASA FIRMS 活跃火） | `/pois/v2/firespots/tiles/{z}/{x}/{y}` | `pois --ident firespots` | ✅（mesh 原始数据） |
+| 站点观测历史（METAR/探空/AQI/PWS） | `/obs/measurement/v3/*` | `obs` | ✅ |
+| 机场报文（METAR/TAF/NOTAM/信息） | `/airports/{metar,taf,notams,adinfo}/*` | `airport` | ✅ |
+| 附近实景摄像头 | `/webcams/v2.0/list` 等 | `webcams` | ✅（图链 imgproxy 直可用） |
+| 地点/站点搜索 | `/search/v4.1/*` | `search` | ✅（size≥10 硬校验） |
+| 逆地理编码 | `/reverse/v3/*` | `reverse` | ✅ |
+| 日出日落/暮光 | `/services/celestial/*` | `celestial` | ✅ |
+| 雪崩危险等级（欧/美山区） | `/avalanches/{regions,overview}.json` | `avalanche` | ✅ |
+| 近 5 天预报存档（历史比对） | `/forecast/archive/*` | `archive` | ✅ |
+| 波浪/涌浪预报 | `gfs-wave` point（含 waves/swell 字段） | `forecast --model gfs-wave` | ✅ |
+| 组合查询 | — | `all` | ✅ |
+| **不可用（免费档拿不到）** | `/tides`（401 登录门禁） | — | ❌ 潮汐站列表免费（`pois --ident tide`），潮汐数值付费 |
+| **不适用本项目** | 地图/图层瓦片（ims/rdr/sat） | — | ⛔ 有高德/百度，见 §3.3 |
+| **登录态功能** | `/notif/v1/*`（自定义提醒）、`/users/*`（收藏同步）、dashboards | — | ⛔ 需账号，不接入 |
+
+**说明**：`ecmwf-wam` 的 point 预报实测 404（海上点同样），波浪数据一律走
+`gfs-wave`（已实测含 `waves/wavesDir/wavesPeriod/swell1/swell2` 完整字段）；
+`/forecast/meteogram/*` v1.2 时通时不通（布拉格 200、北京/慕尼黑 404），
+以 `forecast`（point v3.0）为准。
 
 ## 2. 请求规则（先读这个）
 
@@ -64,13 +98,15 @@ Windy Android 是 **Capacitor 混合应用**：原生壳 + 内嵌完整 Web 端 
 | 18 | `POST /pois/v2/search` | POI 搜索（body） | 静态证实，未逐一实测 |
 | 19 | `GET /reverse/v3/{lat}/{lon}/{zoom}?lang=zh-cn` | 逆地理编码 | 200·216B（中文） |
 | 20 | `GET /services/celestial/{lat}/{lon}` | 日出/日落/暮光（补 NOAA 本地计算） | 200·133B |
-| 21 | `GET /airports/metar/{icao}`（`/taf/{icao}`、`/adinfo/{icao}`） | 机场实况/预报/信息 | 200（ZBAA 三项全测） |
-| 22 | `GET /blitz/v3/hot`、`/blitz/v3/60mins` | 闪电热区 | 200·58KB |
+| 21 | `GET /airports/metar/{icao}`（`/taf/{icao}`、`/notams/{icao}`、`/adinfo/{icao}`） | 机场实况/预报/通告/信息 | 200（ZBAA 四项全测；**METAR 响应自带提示：官方免费源为 aviationweather.gov/dataserver，批量需求请走官方**） |
+| 22 | `GET /blitz/v3/hot`（`/blitz/v3/60mins`） | 闪电热区 | 200·58KB（hot 稳定；**60mins 有波动，11-24 实测 404**） |
 | 23 | `GET /webcams/v2.0/list?nearby={lat},{lon}&radius=250&order=popularity&limit=3&lang=zh-cn` | 附近实景摄像头 | 200（**radius 单独传参；勿传 imageSize**） |
-| 24 | `GET /webcams/v1.0/webcams/last-updated-on?webcamIds={id}` | 摄像头更新时间 | 200·57B |
-| 25 | `GET /avalanches/regions.json`、`/avalanches/overview/{region}.json` | 雪崩预警 | 200·529KB（regions） |
+| 24 | `GET /webcams/v1.0/webcams/last-updated-on?webcamIds={id}`、`/webcams/v2.0/archive/hourly/{id}` | 摄像头更新时间/逐时归档 | 200（归档·121KB） |
+| 25 | `GET /avalanches/regions.json`、`GET /avalanches/overview/{YYYY-MM-DD}.json` | 雪崩区域注册/当日全球危险等级 | 200（regions·529KB；overview·126KB；**路径参数是日期**） |
 | 26 | `GET https://rdr.windy.com/radar2/composite/coverage.json` | 全球雷达覆盖表（无 token） | 200·6.8KB |
 | 27 | `GET /reverse/v3/radar-provider/{lat}/{lon}` | 雷达数据提供方 | 200（北京 → **国家气象中心 NMC**） |
+| 28 | `GET /pois/v2/{ident}/{lat}/{lon}`（ident 泛化） | 附近 POI | 200（stations/ad/tide/airq/radiosonde 实测） |
+| 29 | `GET /pois/v2/firespots/tiles/{z}/{x}/{y}` | 活跃火点（mesh：id/tileX/tileY/spotRank） | 200（四川实测） |
 
 **obs/measurement 的 source=id 约定**（来自 station.js 调用链）：
 
@@ -109,7 +145,7 @@ bom-access*/can-hrdps/can-rdwps/cze-aladin/cams-eu/cmems 等。
 |---|---|---|
 | `ims.windy.com/im/v3.0/…` 数据瓦片 | 400 `Invalid request`（会话校验） | 本项目不需要瓦片，放弃 |
 | `rdr.windy.com`/`sat.windy.com` 瓦片 | 需 `token2` 会话参数 | 同上 |
-| `/tides/v1.0/tides/{lat}/{lon}` | 401 登录门禁 | 潮汐场景跳过 |
+| `/tides/v1.0/tides/{lat}/{lon}` | 401 登录门禁 | 潮汐数值不接入；**潮汐站列表免费**（`pois --ident tide`） |
 | `/notif/v1/*`、`/users/*`、`/imaker/*`、订阅支付类 | 需登录 | 不接入 |
 | `node.windy.com/sedlina/*` | 客户端遥测上报 | 不接入（勿模仿） |
 
@@ -161,12 +197,18 @@ aqi        --lat --lon [--model cams-global]
 archive    --lat --lon [--hours 120] [--model gfs]
 alerts     --lat --lon [--lang zh-cn]          # [] = 无预警（204）
 storms     [--count] [--id xavier]
+lightning  [--minutes60]                       # 闪电（默认 hot 热区；60mins 波动）
+airport    --icao ZBAA [--what metar,taf,notams,adinfo]   # 机场报文
 elevation  --lat --lon  |  --route "lat,lon;lat,lon"
 route      --route "39.90,116.41;31.23,121.47" [--mode car] [--dst 2026/11/25/02]
 stations   --lat --lon                         # 附近站点/机场实况
+pois       --ident tide --lat --lon            # stations/ad/airq/radiosonde/firespots…
 obs        --source ad --id ZBAA [--count 10]  # radiosonde 54511 / airq / pws / wmo
 search     --query "Beijing" --lat --lon [--types station,radiosonde]
+reverse    --lat --lon [--lang zh-cn]          # 逆地理编码
+webcams    --lat --lon [--radius 250]          # 附近摄像头（--id 查更新/归档）
 celestial  --lat --lon                         # 日出日落（补 NOAA 本地计算）
+avalanche  [--date 2026-11-23] [--regions]     # 雪崩危险（欧/美山区）
 minifest   [--model gfs]                       # 调试：当前批次
 all        --lat --lon [--model gfs]           # 组合单 JSON（预报+实况+AQI+预警+台风）
 ```
@@ -211,6 +253,9 @@ python3 scripts/windy_fetch.py all --lat 30.25 --lon 120.17 | jq '.forecast.data
 - 官方替代路径（如需商业化）：api.windy.com 的 Point Forecast API
   （免费 trial 返回混淆数据，正式版 €990/年，无 ECMWF）与
   Map Forecast API（免费地图嵌入）。
+- **METAR/TAF 专项**：Windy 服务器在响应中明确提示"请勿抓取，官方免费源为
+  https://www.aviationweather.gov/dataserver"——机场报文的批量/长期需求应改用
+  官方 ADDS 源，`airport` 子命令仅作行程规划内的低频兜底。
 
 ## 8. 维护：Windy 版本升级后的再验证流程
 

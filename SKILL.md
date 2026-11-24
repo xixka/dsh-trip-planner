@@ -343,8 +343,9 @@ never stall silently or invent a script's output.
 - `scripts/flight_scan.py` — 境内交通深链网格生成器(零依赖零网络): 机票(携程/Trip.com/
   去哪儿)+ 火车(携程火车票;12306 官方 App/小程序)深链,价格点开核对(`--help` 先行)。
 - `scripts/windy_fetch.py` — **Windy 免费气象数据**(免 key 免登录,逆向接口,详见
-  `docs/windy.md`): forecast/now/aqi/archive/alerts/storms/elevation/stations/obs/
-  search/route/celestial/all 13 个子命令;多模型交叉校验(gfs/icon-global/
+  `docs/windy.md`): forecast/now/aqi/archive/alerts/storms/lightning/airport/
+  elevation/route/stations/pois/obs/search/reverse/webcams/celestial/avalanche/
+  all 19 个子命令(机场 METAR/TAF/NOTAM、火点、雪崩、摄像头等全覆盖);多模型交叉校验(gfs/icon-global/
   ecmwf-hres)、AQI、CAP 预警(境外补充,境内仍 nmc.cn)、台风、路线高程与沿线
   天气、近 5 天实况存档;单位自动换算(K→°C/Pa→hPa),windycache.json 缓存,
   `WINDY_BASE` 可换反代前缀;exit 3 = 该源无数据,静默降级回 Open-Meteo 主链。

@@ -238,7 +238,9 @@ holiday calendar page (timeanddate-style) for the year — and put the dates in
 提供第二预报链路与独有能力——多模型交叉校验（gfs / icon-global / ecmwf-hres）、
 AQI（cams-global，填补链路空缺）、CAP 气象预警（境外/全球补充；境内仍以 nmc.cn
 为主）、台风目录（`storms`，沿海行程检查）、单点+路线高程、近 5 天实况存档
-（临场重排比对）、航线沿线天气（`route`，自驾/包车"哪段路下雨"）。
+（临场重排比对）、航线沿线天气（`route`，自驾/包车"哪段路下雨"）、闪电
+（`lightning`）、机场 METAR/TAF/NOTAM（`airport`）、火点与雪崩（`pois/avalanche`）、
+实景摄像头（`webcams`）。免费功能覆盖矩阵见 `docs/windy.md` §1.1。
 用法、端点清单、单位换算与合规注意**全部见 `docs/windy.md`**（权威参考）。
 任何 Windy 数据行同样盖戳：`… · Windy gfs 2026-11-24`；模块失败（exit 3）时
 静默降级回 Open-Meteo 链，不阻塞行程生成。

@@ -91,7 +91,9 @@ BASE = (os.environ.get("WINDY_BASE") or "https://node.windy.com").rstrip("/")
 CACHE_PATH = os.environ.get("WINDY_CACHE", "windycache.json")
 CACHE_TTL = {"minifest": 1800, "forecast": 3600, "now": 600, "aqi": 3600,
              "archive": 3600, "alerts": 600, "storms": 600, "elevation": 600,
-             "stations": 600, "obs": 600, "search": 600, "route": 600, "celestial": 3600}
+             "stations": 600, "obs": 600, "search": 600, "route": 600, "celestial": 3600,
+             "lightning": 300, "airport": 900, "webcams": 900,
+             "pois": 600, "reverse": 86400, "avalanche": 3600}
 TIMEOUT = 20
 RETRIES = 1
 UA = "trip-planner-cn/1.0 (+windy public data; contact: repo maintainer)"
@@ -369,6 +371,120 @@ def cmd_celestial(args):
     return data
 
 
+def cmd_lightning(args):
+    """Recent lightning: /blitz/v3/hot (dense strike cells, stable) or
+    /blitz/v3/60mins (last-hour strikes — flaky, sometimes 404)."""
+    which = "hot" if not args.minutes60 else "60mins"
+    data = fetch_json("/blitz/v3/{}".format(which), kind="lightning",
+                      cache_key=which)
+    if data is None:
+        return {"strikes": [], "meta": {"source": "Windy blitz/v3/" + which}}
+    strikes = data if isinstance(data, list) else data.get("data", data)
+    return {"strikes": strikes,
+            "meta": {"source": "Windy blitz/v3/{}".format(which)}}
+
+
+def cmd_airport(args):
+    """Aviation weather for an airport: METAR (current), TAF (forecast),
+    NOTAMs and aerodrome info. Verified: ZBAA all four 200."""
+    parts = {}
+    wanted = args.what.split(",") if args.what != "all" else \
+        ["metar", "taf", "notams", "adinfo"]
+    for what in wanted:
+        path = "/airports/{}/{}".format(what, args.icao)
+        data = fetch_json(path, kind="airport",
+                          cache_key="{}|{}".format(args.icao, what))
+        parts[what] = data
+    return {"icao": args.icao, "data": parts,
+            "meta": {"source": "Windy airports/*", "icao": args.icao}}
+
+
+def cmd_webcams(args):
+    """Nearby webcams (list), freshness (last-updated-on) or the hourly day
+    archive of one webcam (photo timestamps, not the images themselves)."""
+    if args.id:
+        if args.archive:
+            data = fetch_json("/webcams/v2.0/archive/hourly/{}".format(args.id),
+                              kind="webcams", cache_key="archive|" + args.id)
+            return {"webcamId": args.id, "archive": data,
+                    "meta": {"source": "Windy webcams/v2.0/archive/hourly"}}
+        data = fetch_json(
+            "/webcams/v1.0/webcams/last-updated-on?webcamIds={}".format(args.id),
+            kind="webcams", cache_key="updated|" + args.id)
+        return {"webcamId": args.id, "lastUpdated": data,
+                "meta": {"source": "Windy webcams/v1.0/last-updated-on"}}
+    # list: nearby lat,lon RAW commas (server rule), radius separate, no imageSize
+    path = "/webcams/v2.0/list?nearby={:.4f},{:.4f}&radius={}&order=popularity&limit={}&lang={}".format(
+        args.lat, args.lon, args.radius, args.limit, args.lang)
+    data = fetch_json(path, kind="webcams",
+                      cache_key="{:.4f}|{:.4f}|{}".format(args.lat, args.lon, args.radius))
+    return {"cams": (data or {}).get("cams", []),
+            "meta": {"source": "Windy webcams/v2.0/list",
+                     "radius_km": args.radius}}
+
+
+POI_LIST_IDENTS = ("stations", "ad", "tide", "airq", "radiosonde",
+                   "pgspots", "kitespots", "surfspots")
+
+
+def cmd_pois(args):
+    """Nearest POIs by ident. List-style idents (verified): stations, ad
+    (airports), tide, airq, radiosonde; spot idents share the same shape.
+    firespots uses the mesh-tile form /pois/v2/firespots/tiles/{z}/{x}/{y}
+    (raw arrays: id / tileX / tileY / spotRank — sub-grid coords, returned
+    as-is with the tile URL in meta)."""
+    if args.ident == "firespots":
+        import math
+        z = 7
+        x = int((args.lon + 180.0) / 360.0 * (1 << z))
+        lat_rad = math.radians(args.lat)
+        y = int((1 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2 * (1 << z))
+        path = "/pois/v2/firespots/tiles/{}/{}/{}".format(z, x, y)
+        data = fetch_json(path, kind="pois",
+                          cache_key="firespots|{}|{}|{}".format(z, x, y))
+        return {"firespots": data,
+                "meta": {"source": "Windy pois/v2/firespots (mesh tile)",
+                         "tile": "{}/{}/{}".format(z, x, y),
+                         "note": "tileX/tileY are sub-grid coords inside the tile"}}
+    if args.ident not in POI_LIST_IDENTS:
+        raise WindyError("ident must be one of {}, or firespots".format(
+            ",".join(POI_LIST_IDENTS)), code=2)
+    path = "/pois/v2/{}/{:.4f}/{:.4f}".format(args.ident, args.lat, args.lon)
+    data = fetch_json(path, kind="pois",
+                      cache_key="{}|{:.4f}|{:.4f}".format(args.ident, args.lat, args.lon))
+    return {"pois": data or [],
+            "meta": {"source": "Windy pois/v2/" + args.ident}}
+
+
+def cmd_reverse(args):
+    """Reverse geocoding with local-language place names (verified zh-cn)."""
+    path = "/reverse/v3/{:.4f}/{:.4f}/{}?lang={}".format(
+        args.lat, args.lon, args.zoom, args.lang)
+    data = fetch_json(path, kind="reverse",
+                      cache_key="{:.4f}|{:.4f}|{}".format(args.lat, args.lon, args.lang))
+    if not isinstance(data, dict):
+        raise WindyError("reverse returned no parsable data", code=1)
+    data.setdefault("meta", {})["source"] = "Windy reverse/v3"
+    return data
+
+
+def cmd_avalanche(args):
+    """Avalanche danger: regions.json (full micro-region registry w/ borders)
+    or overview/{date}.json (global danger levels keyed by region id).
+    Verified: regions 200·529KB, overview/2026-11-23.json 200·126KB.
+    Coverage is mostly Europe/US mountain areas — China not included."""
+    if args.regions:
+        data = fetch_json("/avalanches/regions.json", kind="avalanche",
+                          cache_key="regions")
+        return {"regions": data,
+                "meta": {"source": "Windy avalanches/regions.json"}}
+    date = args.date or time.strftime("%Y-%m-%d", time.gmtime())
+    data = fetch_json("/avalanches/overview/{}.json".format(date),
+                      kind="avalanche", cache_key="overview|" + date)
+    return {"date": date, "dangerByRegion": data,
+            "meta": {"source": "Windy avalanches/overview"}}
+
+
 def cmd_elevation(args):
     if args.route:
         pts = []
@@ -583,6 +699,43 @@ def main(argv=None):
     p = sub.add_parser("celestial", help="sunrise/sunset/dusk (services/celestial)")
     add_point(p, with_model=False)
 
+    p = sub.add_parser("lightning", help="recent lightning (blitz/v3)")
+    p.add_argument("--minutes60", action="store_true",
+                   help="last-60-min strikes (flaky) instead of dense cells")
+
+    p = sub.add_parser("airport", help="METAR/TAF/NOTAMs/adinfo (airports)")
+    p.add_argument("--icao", required=True, help="e.g. ZBAA")
+    p.add_argument("--what", default="all",
+                   help="all | comma list of metar,taf,notams,adinfo")
+
+    p = sub.add_parser("webcams", help="nearby webcams / freshness / archive")
+    p.add_argument("--lat", type=float, default=39.9042)
+    p.add_argument("--lon", type=float, default=116.4074)
+    p.add_argument("--radius", type=int, default=250, help="km (default 250)")
+    p.add_argument("--limit", type=int, default=3)
+    p.add_argument("--lang", default="zh-cn")
+    p.add_argument("--id", default=None, help="webcam id (freshness mode)")
+    p.add_argument("--archive", action="store_true",
+                   help="with --id: hourly day archive timestamps")
+
+    p = sub.add_parser("pois", help="nearest POIs by ident (pois/v2)")
+    p.add_argument("--ident", required=True,
+                   help="stations|ad|tide|airq|radiosonde|pgspots|kitespots|"
+                        "surfspots|firespots")
+    p.add_argument("--lat", type=float, default=39.9042)
+    p.add_argument("--lon", type=float, default=116.4074)
+
+    p = sub.add_parser("reverse", help="reverse geocoding (reverse/v3)")
+    p.add_argument("--lat", type=float, default=39.9042)
+    p.add_argument("--lon", type=float, default=116.4074)
+    p.add_argument("--zoom", type=int, default=10)
+    p.add_argument("--lang", default="zh-cn")
+
+    p = sub.add_parser("avalanche", help="avalanche danger (regions/overview)")
+    p.add_argument("--regions", action="store_true",
+                   help="full micro-region registry instead of today's danger")
+    p.add_argument("--date", default=None, help="YYYY-MM-DD (default today)")
+
     p = sub.add_parser("minifest", help="debug: current model run info")
     p.add_argument("--model", default=None)
 
@@ -598,7 +751,10 @@ def main(argv=None):
                 "archive": cmd_archive, "alerts": cmd_alerts, "storms": cmd_storms,
                 "elevation": cmd_elevation, "stations": cmd_stations,
                 "obs": cmd_obs, "search": cmd_search, "route": cmd_route,
-                "celestial": cmd_celestial, "minifest": cmd_minifest,
+                "celestial": cmd_celestial, "lightning": cmd_lightning,
+                "airport": cmd_airport, "webcams": cmd_webcams,
+                "pois": cmd_pois, "reverse": cmd_reverse,
+                "avalanche": cmd_avalanche, "minifest": cmd_minifest,
                 "all": cmd_all}
     if args.cmd == "elevation" and not args.route and (args.lat is None or args.lon is None):
         ap.error("elevation needs --lat/--lon or --route")
