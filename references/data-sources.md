@@ -233,6 +233,16 @@ holiday calendar page (timeanddate-style) for the year — and put the dates in
 默认气象源；失败或需要中文预报时的替代：**【境内可用】和风天气 QWeather**
 （dev.qweather.com，免费 key）或高德天气 API（`AMAP_KEY` 复用，仅国内城市）。
 日期超出 16 天预报窗口时的历史同期/气候态仍用 Open-Meteo 的 2a/2b 两路。
+
+**【新增源 ✓ 2026-11-24】Windy（免 key 免登录，逆向接口）**：`scripts/windy_fetch.py`
+提供第二预报链路与独有能力——多模型交叉校验（gfs / icon-global / ecmwf-hres）、
+AQI（cams-global，填补链路空缺）、CAP 气象预警（境外/全球补充；境内仍以 nmc.cn
+为主）、台风目录（`storms`，沿海行程检查）、单点+路线高程、近 5 天实况存档
+（临场重排比对）、航线沿线天气（`route`，自驾/包车"哪段路下雨"）。
+用法、端点清单、单位换算与合规注意**全部见 `docs/windy.md`**（权威参考）。
+任何 Windy 数据行同样盖戳：`… · Windy gfs 2026-11-24`；模块失败（exit 3）时
+静默降级回 Open-Meteo 链，不阻塞行程生成。
+
 1. Geocode the city: `curl -s "https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1"`
 2. **Normals for dates beyond the forecast window — two calls, never one year's
    sample.** Last year's same dates is one draw (one typhoon week rewrites "October
