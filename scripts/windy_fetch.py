@@ -565,13 +565,18 @@ def cmd_webcams(args):
         return {"webcamId": args.id, "lastUpdated": data,
                 "meta": {"source": "Windy webcams/v1.0/last-updated-on"}}
     # list: nearby lat,lon RAW commas (server rule), radius separate, no imageSize
+    # server hard-caps radius at 250 km (251+ -> HTTP 400, verified 2026-11-25
+    # with Beijing & Aitutaki); clamp instead of failing deep in the fetch
+    radius = max(1, min(args.radius, 250))
+    if radius != args.radius:
+        warn("webcams --radius {} clamped to 250 (server cap)".format(args.radius))
     path = "/webcams/v2.0/list?nearby={:.4f},{:.4f}&radius={}&order=popularity&limit={}&lang={}".format(
-        args.lat, args.lon, args.radius, args.limit, args.lang)
+        args.lat, args.lon, radius, args.limit, args.lang)
     data = fetch_json(path, kind="webcams",
-                      cache_key="{:.4f}|{:.4f}|{}".format(args.lat, args.lon, args.radius))
+                      cache_key="{:.4f}|{:.4f}|{}".format(args.lat, args.lon, radius))
     return {"cams": (data or {}).get("cams", []),
             "meta": {"source": "Windy webcams/v2.0/list",
-                     "radius_km": args.radius}}
+                     "radius_km": radius}}
 
 
 POI_LIST_IDENTS = ("stations", "ad", "tide", "airq", "radiosonde",
@@ -885,7 +890,8 @@ def main(argv=None):
     p = sub.add_parser("webcams", help="nearby webcams / freshness / archive")
     p.add_argument("--lat", type=float, default=39.9042)
     p.add_argument("--lon", type=float, default=116.4074)
-    p.add_argument("--radius", type=int, default=250, help="km (default 250)")
+    p.add_argument("--radius", type=int, default=250,
+                   help="km, server cap 250 (higher -> HTTP 400)")
     p.add_argument("--limit", type=int, default=3)
     p.add_argument("--lang", default="zh-cn")
     p.add_argument("--id", default=None, help="webcam id (freshness mode)")

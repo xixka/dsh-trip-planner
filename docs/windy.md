@@ -4,7 +4,9 @@
 > 验证日期：2026-11-23 / 11-24（全部端点经代理实测，含北京坐标）；
 > 2026-11-25 全 20 子命令常见数据冒烟复测（北京/深圳，含边界：区域模型 404、
 > 闪电 60mins 404、潮汐站列表、火点 mesh、台风详情）——
-> 发现并修复 archive/route/obs 缺单位换算、GBK 控制台输出崩溃两处
+> 发现并修复 archive/route/obs 缺单位换算、GBK 控制台输出崩溃两处；
+> 2026-11-25 境外小地点实测（采尔马特/卢卡拉/艾图塔基/法罗群岛/南极/
+> 雨崩村）——发现并修复 webcams radius>250 km 全局 400（见 §1.2）
 > 状态：**全部免费数据功能已逆向并实现，零遗留**（见 §1.1 功能覆盖矩阵）；
 > 配套实现 `scripts/windy_fetch.py`（20 个子命令）
 > 本文档是 Windy 数据源的权威参考；`references/data-sources.md` 的 Weather 章节只保留接入要点
@@ -55,6 +57,24 @@ Windy Android 是 **Capacitor 混合应用**：原生壳 + 内嵌完整 Web 端 
 `/forecast/meteogram/*` v1.2 时通时不通（布拉格 200、北京/慕尼黑 404），
 以 `forecast`（point v3.0）为准。
 
+### 1.2 境外/小地点覆盖实测（2026-11-25）
+
+| 地点 | 类型 | 实测结论 |
+|---|---|---|
+| 采尔马特 46.02,7.75（瑞士山谷村） | forecast/celestial/alerts | ✅ 全通；icon-global 16 点 3.5~8.2 °C； alerts 空列表 |
+| 卢卡拉 VNLK 27.69,86.73（尼泊尔 2840 m 小机场） | airport/stations/forecast | ⚠️ METAR 返回 `null`（无 METAR 上报的小机场，脚本正常返回不报错）；forecast 正常；**nearest station 110 km（Tingri/定日）**——喜马拉雅腹地站点极稀 |
+| 艾图塔基 -19.78,-159.10（库克群岛环礁） | forecast/gfs-wave/now/pois/search/reverse/webcams | ✅ 波浪字段齐全（waves 2.38 m / 13 s / swell1+swell2）；POI 12 个（最近机场 105 km）；search 命中 WMO 站；webcams 正常（**radius>250 触发 400，已修**）；reverse 返回 null 字段（无人岛/环礁逆地理弱，正常降级） |
+| Saksun 62.25,-7.15（法罗群岛小渔村） | forecast/alerts/stations | ✅ 全通；最近站 Vágar 机场 22 km；CAP 预警空列表 |
+| 南极 Troll 站附近 -75.25,-0.5 | stations/forecast | ✅ forecast 8 点 -29.6~-20.2 °C；station 仅 1 个（Troll，372 km）——极地覆盖薄但有值 |
+| 开阔大洋 30,-170 | stations | ✅ 0 站（空数组，正常负测试） |
+| 雨崩村 28.46,98.79（滇西北徒步村） | forecast/stations | ✅ icon-global 正常；最近站德钦 8.6 km——境内小居民点站点密度显著优于境外同类 |
+
+**结论**：模型类数据（forecast/now/aqi/wave/route/elevation）全球无差别覆盖，
+小地方与大城市同质；**站点类（stations/obs/airport METAR）密度取决于当地
+上报网络**——发达国家/旅游区可用，喜马拉雅/极地/远海稀疏甚至为空，行程里
+凡遇空结果按 exit 0 + 空数组处理并回退模型数据；CAP 预警境内基本为空（见
+§6 预警行），欧洲（瑞士/法罗）可取但本次无活跃预警。
+
 ## 2. 请求规则（先读这个）
 
 - **refTime 依赖**：`/forecast/*` 系列必须带模型批次的 `refTime`。先请求
@@ -103,7 +123,7 @@ Windy Android 是 **Capacitor 混合应用**：原生壳 + 内嵌完整 Web 端 
 | 20 | `GET /services/celestial/{lat}/{lon}` | 日出/日落/暮光（补 NOAA 本地计算） | 200·133B |
 | 21 | `GET /airports/metar/{icao}`（`/taf/{icao}`、`/notams/{icao}`、`/adinfo/{icao}`） | 机场实况/预报/通告/信息 | 200（ZBAA 四项全测；**METAR 响应自带提示：官方免费源为 aviationweather.gov/dataserver，批量需求请走官方**） |
 | 22 | `GET /blitz/v3/hot`（`/blitz/v3/60mins`） | 闪电热区 | 200·58KB（hot 稳定；**60mins 有波动，11-24 实测 404**） |
-| 23 | `GET /webcams/v2.0/list?nearby={lat},{lon}&radius=250&order=popularity&limit=3&lang=zh-cn` | 附近实景摄像头 | 200（**radius 单独传参；勿传 imageSize**） |
+| 23 | `GET /webcams/v2.0/list?nearby={lat},{lon}&radius=250&order=popularity&limit=3&lang=zh-cn` | 附近实景摄像头 | 200（**radius 单独传参；勿传 imageSize；radius 硬上限 250 km，251+ 一律 400**——2026-11-25 北京/库克群岛双侧复测；负纬度无影响。脚本已自动钳制并 WARN） |
 | 24 | `GET /webcams/v1.0/webcams/last-updated-on?webcamIds={id}`、`/webcams/v2.0/archive/hourly/{id}` | 摄像头更新时间/逐时归档 | 200（归档·121KB） |
 | 25 | `GET /avalanches/regions.json`、`GET /avalanches/overview/{YYYY-MM-DD}.json` | 雪崩区域注册/当日全球危险等级 | 200（regions·529KB；overview·126KB；**路径参数是日期**） |
 | 26 | `GET https://rdr.windy.com/radar2/composite/coverage.json` | 全球雷达覆盖表（无 token） | 200·6.8KB |

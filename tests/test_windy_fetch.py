@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Offline tests for scripts/windy_fetch.py helpers; never touches the network."""
 
+import argparse
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -170,6 +172,51 @@ class CliWiringTest(unittest.TestCase):
 
     def test_default_tz_is_beijing(self):
         self.assertEqual(windy_fetch.DEFAULT_TZ_HOURS, 8)
+
+
+class WebcamRadiusTest(unittest.TestCase):
+    """/webcams/v2.0/list hard-caps radius at 250 km (251+ -> HTTP 400,
+    verified 2026-11-25 with Beijing and Aitutaki coordinates)."""
+
+    def _captor(self):
+        captured = {}
+
+        def fake_fetch(path, kind=None, cache_key=None):
+            captured["path"] = path
+            captured["cache_key"] = cache_key
+            return {"cams": []}
+
+        return captured, fake_fetch
+
+    def test_radius_above_cap_is_clamped(self):
+        captured, fake = self._captor()
+        args = argparse.Namespace(lat=39.9042, lon=116.4074, radius=300,
+                                  limit=3, lang="zh-cn", id=None, archive=False)
+        with mock.patch.object(windy_fetch, "fetch_json", side_effect=fake), \
+             mock.patch.object(windy_fetch, "warn") as warned:
+            out = windy_fetch.cmd_webcams(args)
+        self.assertIn("radius=250", captured["path"])
+        self.assertEqual(out["meta"]["radius_km"], 250)
+        self.assertTrue(warned.called)  # clamping is announced, not silent
+
+    def test_radius_within_cap_untouched(self):
+        captured, fake = self._captor()
+        args = argparse.Namespace(lat=39.9042, lon=116.4074, radius=120,
+                                  limit=3, lang="zh-cn", id=None, archive=False)
+        with mock.patch.object(windy_fetch, "fetch_json", side_effect=fake), \
+             mock.patch.object(windy_fetch, "warn") as warned:
+            out = windy_fetch.cmd_webcams(args)
+        self.assertIn("radius=120", captured["path"])
+        self.assertEqual(out["meta"]["radius_km"], 120)
+        self.assertFalse(warned.called)
+
+    def test_radius_nonpositive_floors_to_one(self):
+        captured, fake = self._captor()
+        args = argparse.Namespace(lat=39.9042, lon=116.4074, radius=0,
+                                  limit=3, lang="zh-cn", id=None, archive=False)
+        with mock.patch.object(windy_fetch, "fetch_json", side_effect=fake):
+            windy_fetch.cmd_webcams(args)
+        self.assertIn("radius=1", captured["path"])
 
 
 if __name__ == "__main__":
