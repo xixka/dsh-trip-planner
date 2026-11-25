@@ -136,7 +136,7 @@ python themes/qc.py trip-illustrated.html
 | `DASHSCOPE_API_KEY` / `SILICONFLOW_API_KEY` | 境内生图 | 图片走素材库或原生能力 |
 | `TRIP_MAP_PROVIDER` | 深链服务商，`amap`（默认）或 `baidu` | 用默认高德 |
 | `TRAIN_LIVE_CACHE_DIR` | 12306 车站表/查询路径缓存目录（默认临时目录） | 缓存写在系统临时目录 |
-| `FLYAI_API_KEY` | 飞猪 flyai CLI 只读机票/酒店查询 | 机票/酒店仅用深链与价格区间 |
+| `FLYAI_API_KEY` | 飞猪官方 flyai CLI 增强（可选；无 key 走体验模式，真实报价但部分受限） | 机票/酒店仅用深链与价格区间 |
 | `FLYAI_CLI` | flyai CLI 不在 PATH 时的绝对路径 | 按 PATH 上的 `flyai` 探测 |
 
 **申请高德 key**：在高德开放平台（lbs.amap.com）注册并实名认证后创建应用，key 类型选「Web 服务」，个人开发者免费额度充足。拿到 key 后，在 skill 根目录建一个 `.env` 文件（参照 [.env.example](.env.example)）写入 `AMAP_KEY=你的key` 即可，脚本会自动读取。

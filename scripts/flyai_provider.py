@@ -2,24 +2,27 @@
 """Optional 飞猪 flyai CLI read-only flight and hotel queries.
 
 No third-party Python packages, no login, no browser, no booking, no passenger
-information. The flyai CLI is invoked read-only with a safe argument array
-(never a shell string); FLYAI_API_KEY is passed through the environment only and
-never appears in argv, logs, fixtures or rendered output. Without the CLI, the
-key, on 体验模式 (demo mode), or on any query failure, the result is
-``unavailable``/``demo`` plus the existing flight_scan deep links — the plan,
-its estimates and its manual verification stay untouched.
+information. The official Fliggy CLI (@fly-ai/flyai-cli, MIT, published by the
+alibaba-flyai organization) is invoked read-only with a safe argument array
+(never a shell string); FLYAI_API_KEY is optional (the CLI works without it in
+体验模式, which the adapter reports honestly as ``demo``-restricted but with
+real prices) and is passed through the environment only — it never appears in
+argv, logs, fixtures or rendered output. Without the CLI, on any query failure,
+the result is ``unavailable`` plus the existing flight_scan deep links — the
+plan, its estimates and its manual verification stay untouched.
 
-IMPORTANT — 未实测: the flyai CLI was NOT available while this adapter was
-written (no `flyai --help` could be run in the sandbox). The subcommand/flag
-template below (FLIGHTS/CLI_TEMPLATE, HOTELS/CLI_TEMPLATE) is an ASSUMED
-contract documented in references/flyai.md. Run `python3 scripts/flyai_provider.py
-doctor` (it runs `flyai --help`/`--version` and checks the signature) before the
-first real query; if the real CLI differs, adjust CLI_TEMPLATE or keep using the
-flight_scan deep links. All offline tests use fixtures and never invoke the CLI.
+Contract: verified against the real CLI on 2026-11-25 (v1.0.16, streamable_http
+transport). Output is a single-line JSON object on stdout:
+``{"data": {"itemList": [...]}, "message": str, "status": 0, "systemMessage": str}``.
+Flight rows: journeys[].segments[] (depDateTime/arrDateTime "YYYY-MM-DD HH:MM:SS",
+depStationCode/Name, arrStationCode/Name, marketingTransportName/No, duration
+minutes as str, seatClassName, stopInfos[] for through-stops, quantity seats),
+envelope ticketPrice "450.00", totalDuration, jumpUrl. Hotel rows: name/shId/
+address/star/rate/price ("¥1xxx" = masked)/latitude/longitude/detailUrl/mainPic.
 
 Examples:
   python3 scripts/flyai_provider.py doctor
-  python3 scripts/flyai_provider.py flights --from PVG --to KMG --date 2026-12-01
+  python3 scripts/flyai_provider.py flights --from 上海 --to 昆明 --date 2026-12-01
   python3 scripts/flyai_provider.py flights --from PVG --to KMG --date 2026-12-01 \
       --adults 2 --cabin economy --earliest 7 --latest 12 --plan plan.geo.json --write
   python3 scripts/flyai_provider.py hotels --city 杭州 --checkin 2026-12-01 \
@@ -51,30 +54,37 @@ SCHEMA_VERSION = 1
 CLI_NAME = "flyai"
 CLI_ENV_OVERRIDE = "FLYAI_CLI"
 CLI_KEY_ENV = "FLYAI_API_KEY"
+CLI_UPSTREAM = "alibaba-flyai/flyai-skill"
+CLI_PACKAGE = "@fly-ai/flyai-cli"
+CLI_VERIFIED_VERSION = "1.0.16"
 BEIJING_TZ = timezone(timedelta(hours=8), name="CST")
 TIMEZONE_NAME = "Asia/Shanghai"
 LIVE_NOTICE = "查询时参考价（单源）；下单前点开 detailUrl/深链以航司或飞猪页面为准"
 SAMPLE_NOTICE = "注明日期的离线样本，非实时数据，禁止写入计划"
-DEMO_NOTICE = "flyai 体验模式：非真实报价，完整回退深链与价格区间"
+DEMO_NOTICE = "flyai 体验模式：部分结果可能受限；价格为真实报价，购票前以飞猪页面为准"
 STATUSES = {
     "live", "sample", "demo", "no_service", "unavailable", "unverified",
 }
 STATUS_PRIORITY = {"unverified": 0, "unavailable": 0, "deep_link": 1,
                    "no_service": 1, "demo": 2, "sample": 2, "live": 3}
 CABINS = ("economy", "business", "first")
+CABIN_ALIASES = {"经济舱": "economy", "商务舱": "business", "头等舱": "first"}
 PRICE_BASES = (
     "per-night-per-room", "per-night-per-person",
     "total-per-room", "total-per-person", "unknown",
 )
-MASKED_MARKERS = ("*", "＊", "masked", "遮蔽", "****", "-----")
+MASKED_MARKERS = ("*", "＊", "masked", "遮蔽", "****", "-----", "x", "X")
+# Real CLI hotel prices in 体验模式 are digit-masked: "¥1xx" / "¥8x" / "¥1xxx".
+MASKED_PRICE_RE = re.compile(r"^¥?[\dxX＊*]+$")
 
-# ASSUMED flyai CLI contract (unverified — see module docstring and doctor).
-FLIGHTS_TEMPLATE = ["flights", "--format", "json"]
-HOTELS_TEMPLATE = ["hotels", "--format", "json"]
-VERSION_TEMPLATE = ["--version"]
+# Verified CLI contract (2026-11-25, @fly-ai/flyai-cli 1.0.16). Subcommand
+# names and flags below come from the real `flyai --help`; `--format json` is
+# NOT a real flag (output is always single-line JSON on stdout).
+FLIGHTS_TEMPLATE = ["search-flight"]
+HOTELS_TEMPLATE = ["search-hotel"]
+VERSION_TEMPLATE = ["--help"]
 DOCTOR_TIMEOUT = 10.0
-FLIGHTS_REQUIRED_KEYS = ("flightNo", "depDate", "depTime", "arrDate",
-                         "arrTime", "depAirport", "arrAirport")
+DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
 
 
 def now_beijing():
@@ -328,15 +338,13 @@ def load_fixture(path, expected_tool):
 
 
 def execute_query(base_argv, args, expected_tool):
-    """Fixture mode short-circuits the CLI (CI never touches the real service);
-    the key check happens before any subprocess is spawned."""
+    """Fixture mode short-circuits the CLI (CI never touches the real service).
+    The API key is OPTIONAL since the official CLI v1.0.16 works without one in
+    体验模式 — that mode is reported honestly via demo_flags/systemMessage, and
+    the result still carries real prices but never impersonates full access."""
     if args.fixture:
         payload, sample_date = load_fixture(args.fixture, expected_tool)
         return payload, 0, sample_date
-    if not api_key_present():
-        raise QueryError("key_missing",
-                         "{} is not set (env or .env); deep links remain available"
-                         .format(CLI_KEY_ENV), "unavailable")
     payload, attempts = None, 0
     last_error = None
     for _ in range(args.retries + 1):
@@ -353,14 +361,58 @@ def execute_query(base_argv, args, expected_tool):
 
 
 def demo_flags(payload):
-    """体验模式识别: explicit demoMode flag or a systemMessage mentioning it."""
-    if payload.get("demoMode") is True or payload.get("demo") is True:
-        return True, payload.get("systemMessage")
+    """体验模式识别: systemMessage mentions it (the real CLI has no demoMode
+    flag; experience mode is announced via systemMessage only)."""
     message = payload.get("systemMessage")
     if isinstance(message, str) and any(
             token in message for token in ("体验", "演示", "demo", "Demo", "沙箱")):
         return True, message
     return False, message if isinstance(message, str) else None
+
+
+def payload_rows(payload, kind):
+    """Extract the offer list from the real CLI envelope: data.itemList."""
+    data = payload.get("data")
+    if isinstance(data, dict):
+        rows = data.get("itemList")
+        if isinstance(rows, list):
+            return rows
+    # Fixture/legacy envelope shape: a direct offers/flights/hotels list.
+    for key in ("offers", "flights" if kind == "flights" else "hotels"):
+        rows = payload.get(key)
+        if isinstance(rows, list):
+            return rows
+    raise QueryError("schema_mismatch",
+                     "flyai payload has no data.itemList list", "unverified")
+
+
+def split_datetime(value):
+    """"2026-12-01 07:05:00" → ("2026-12-01", "07:05"); None on mismatch."""
+    if not isinstance(value, str) or not DATETIME_RE.fullmatch(value.strip()):
+        return None, None
+    day, clock = value.strip().split(" ")
+    return day, clock[:5]
+
+
+def parse_duration(raw):
+    """Real CLI gives duration as a string of minutes ("210"); accept numbers."""
+    if isinstance(raw, bool) or raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return int(value) if math.isfinite(value) and 0 < value <= 24 * 60 else None
+
+
+def parse_price_text(raw):
+    """Real CLI prices: "450.00" (ok) or "¥1xxx" (masked)."""
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        value = float(raw)
+        if math.isfinite(value) and value >= 0:
+            return {"amount_cny": value, "status": "ok"}
+        return {"amount_cny": None, "status": "unavailable"}
+    return normalize_price(raw)
 
 
 def mark_sample(result, sample_date):
@@ -386,6 +438,9 @@ def normalize_price(raw, masked_flag=None):
     if isinstance(raw, str):
         cleaned = raw.strip()
         if any(marker in cleaned for marker in MASKED_MARKERS):
+            return {"amount_cny": None, "status": "masked"}
+        if MASKED_PRICE_RE.fullmatch(cleaned):
+            # Real CLI digit-masked hotel price ("¥1xx"): show tier, not a guess.
             return {"amount_cny": None, "status": "masked"}
         if not cleaned or cleaned in ("-", "—", "n/a", "N/A", "未知"):
             return {"amount_cny": None, "status": "unavailable"}
@@ -441,47 +496,99 @@ def as_clock_or_none(value):
 
 
 def normalize_flight_segment(raw):
-    """One flight segment (or a whole direct flight). Missing optional fields
-    stay None — never guessed."""
+    """One real-CLI segment. Missing optional fields stay None — never guessed."""
     if not isinstance(raw, dict):
         raise ValueError("segment is not an object")
-    for key in FLIGHTS_REQUIRED_KEYS:
-        if not isinstance(raw.get(key), str) or not raw.get(key):
-            raise ValueError("segment misses required field " + key)
-    dep = valid_clock(raw["depTime"])
-    arr = valid_clock(raw["arrTime"])
-    dep_date = date.fromisoformat(raw["depDate"])
-    arr_date = date.fromisoformat(raw["arrDate"])
+    dep_date, dep = split_datetime(raw.get("depDateTime"))
+    arr_date, arr = split_datetime(raw.get("arrDateTime"))
+    if not dep_date or not arr_date:
+        raise ValueError("segment misses depDateTime/arrDateTime")
+    flight_no = raw.get("marketingTransportNo")
+    if not isinstance(flight_no, str) or not flight_no.strip():
+        raise ValueError("segment misses marketingTransportNo")
     if arr_date < dep_date:
         raise ValueError("arrival date is before departure date")
-    duration = raw.get("durationMinutes")
-    if (isinstance(duration, bool) or not isinstance(duration, (int, float))
-            or not math.isfinite(duration) or duration <= 0):
+    duration = parse_duration(raw.get("duration"))
+    if duration is None:
         duration = int((datetime.combine(arr_date, datetime.strptime(arr, "%H:%M").time())
                         - datetime.combine(dep_date, datetime.strptime(dep, "%H:%M").time())
                         ).total_seconds() // 60) or None
-    price = normalize_price(raw.get("price"), raw.get("priceMasked"))
+    cabin_raw = raw.get("seatClassName")
+    cabin = CABIN_ALIASES.get(cabin_raw) if isinstance(cabin_raw, str) else None
+    seats_raw = raw.get("quantity")
+    try:
+        seats = int(seats_raw) if not isinstance(seats_raw, bool) else None
+    except (TypeError, ValueError):
+        seats = None
     return {
-        "flight_no": raw["flightNo"].upper(),
-        "airline": raw.get("airline") if isinstance(raw.get("airline"), str) else None,
+        "flight_no": flight_no.upper(),
+        "airline": raw.get("marketingTransportName")
+        if isinstance(raw.get("marketingTransportName"), str) else None,
         "from": {
-            "airport": raw["depAirport"],
-            "terminal": raw.get("depTerminal") if isinstance(raw.get("depTerminal"), str) else None,
+            "airport": raw.get("depStationCode")
+            if isinstance(raw.get("depStationCode"), str) else None,
+            "name": raw.get("depStationName")
+            if isinstance(raw.get("depStationName"), str) else None,
+            "terminal": raw.get("depTerm") if isinstance(raw.get("depTerm"), str) else None,
         },
         "to": {
-            "airport": raw["arrAirport"],
-            "terminal": raw.get("arrTerminal") if isinstance(raw.get("arrTerminal"), str) else None,
+            "airport": raw.get("arrStationCode")
+            if isinstance(raw.get("arrStationCode"), str) else None,
+            "name": raw.get("arrStationName")
+            if isinstance(raw.get("arrStationName"), str) else None,
+            "terminal": raw.get("arrTerm") if isinstance(raw.get("arrTerm"), str) else None,
         },
-        "dep": {"date": raw["depDate"], "time": dep},
-        "arr": {"date": raw["arrDate"], "time": arr},
+        "dep": {"date": dep_date, "time": dep},
+        "arr": {"date": arr_date, "time": arr},
         "next_day_arrival": arr_date > dep_date,
-        "duration_minutes": int(duration) if duration else None,
-        "cabin": raw.get("cabin") if raw.get("cabin") in CABINS else None,
-        "price": price,
-        "detail_url": raw.get("detailUrl") if isinstance(raw.get("detailUrl"), str) else None,
+        "duration_minutes": duration,
+        "cabin": cabin,
+        "cabin_raw": cabin_raw if isinstance(cabin_raw, str) else None,
+        "seats_left": seats,
+        # Segment-level price comes from the envelope; per-segment is not given.
+        "price": {"amount_cny": None, "status": "unavailable"},
+        "detail_url": None,
         # 未知保持未知: bag / refund rules are never invented.
         "baggage": None,
         "refund_change": None,
+    }
+
+
+def normalize_flight_offer(raw, envelope_price, detail_url):
+    """One real-CLI itemList row: journeys[] + envelope ticketPrice/jumpUrl."""
+    if not isinstance(raw, dict):
+        raise ValueError("offer is not an object")
+    journeys = raw.get("journeys")
+    if not isinstance(journeys, list) or not journeys:
+        raise ValueError("offer has no journeys")
+    if len(journeys) > 1:
+        raise ValueError("multi-journey rows are unsupported (use --dep-date only)")
+    journey = journeys[0]
+    segments_raw = journey.get("segments")
+    if not isinstance(segments_raw, list) or not segments_raw:
+        raise ValueError("journey has no segments")
+    if len(segments_raw) > 2:
+        raise ValueError("more than two segments are unsupported")
+    segments = [normalize_flight_segment(s) for s in segments_raw]
+    first, last = segments[0], segments[-1]
+    price = parse_price_text(envelope_price)
+    if len(segments) > 1 and price["status"] == "ok":
+        # Keep the envelope price on the itinerary; segment prices stay unknown.
+        pass
+    return {
+        "segments": segments,
+        "stops": 0 if (journey.get("journeyType") == "直达" and len(segments) == 1)
+                 else len(segments) - 1,
+        "flight_no": " + ".join(s["flight_no"] for s in segments),
+        "from": first["from"], "to": last["to"],
+        "dep": first["dep"], "arr": last["arr"],
+        "next_day_arrival": last["next_day_arrival"],
+        "duration_minutes": parse_duration(journey.get("totalDuration")) or
+                            sum(s["duration_minutes"] or 0 for s in segments) or None,
+        "transfer_minutes": parse_duration(journey.get("transferDuration")),
+        "price": price,
+        "detail_url": detail_url if isinstance(detail_url, str) else None,
+        "tags": raw.get("tags") if isinstance(raw.get("tags"), list) else None,
     }
 
 
@@ -518,13 +625,18 @@ def normalize_flights(payload, args):
         args.earliest, args.latest, args.max_transfers)
     if system_message:
         result["system_message"] = system_message
-    if demo:
+        result["experience_mode"] = demo
+    if demo and "非真实报价" in (system_message or ""):
+        # Explicit sample-data demo (体验模式 + 非真实报价): never live, never
+        # write a plan, never render fake prices.
         return error_result(result, QueryError("demo_mode", "flyai 体验模式输出", "demo"))
-    rows = payload.get("offers")
-    if rows is None:
-        rows = payload.get("flights")
-    if not isinstance(rows, list):
-        raise QueryError("schema_mismatch", "flights payload has no offers list", "unverified")
+    if demo:
+        # 无 key 体验模式 with REAL prices: keep the offers, mark the
+        # restriction honestly; only a non-experience run can overwrite a
+        # previously written live row.
+        result["status"] = "live"
+        result["experience_mode_notice"] = DEMO_NOTICE
+    rows = payload_rows(payload, "flights")
     if not rows:
         result["status"] = "no_service"
         result["reason"] = "valid_empty_result"
@@ -532,30 +644,11 @@ def normalize_flights(payload, args):
     offers, malformed = [], 0
     for raw in rows:
         try:
-            if not isinstance(raw, dict):
-                raise ValueError("offer is not an object")
-            segments_raw = raw.get("segments")
-            if isinstance(segments_raw, list) and segments_raw:
-                segments = [normalize_flight_segment(s) for s in segments_raw]
-                if len(segments) > 2:
-                    raise ValueError("more than two segments are unsupported")
-            else:
-                segments = [normalize_flight_segment(raw)]
-            first, last = segments[0], segments[-1]
-            if first["dep"]["date"] != args.travel_date:
+            offer = normalize_flight_offer(
+                raw, raw.get("ticketPrice"), raw.get("jumpUrl"))
+            if offer["dep"]["date"] != args.travel_date:
                 raise ValueError("offer date differs from requested travel date")
-            offers.append({
-                "segments": segments,
-                "stops": len(segments) - 1,
-                "flight_no": " + ".join(s["flight_no"] for s in segments),
-                "from": first["from"], "to": last["to"],
-                "dep": first["dep"], "arr": last["arr"],
-                "next_day_arrival": last["next_day_arrival"],
-                "duration_minutes": sum(s["duration_minutes"] or 0 for s in segments) or None,
-                "price": (sum_price(segments) if len(segments) > 1
-                          else segments[0]["price"]),
-                "detail_url": last["detail_url"],
-            })
+            offers.append(offer)
         except (KeyError, TypeError, ValueError):
             malformed += 1
     result["malformed_rows"] = malformed
@@ -583,7 +676,7 @@ def normalize_flights(payload, args):
 
 def sum_price(segments):
     """Multi-segment price = sum of known segment prices; any unknown/masked
-    segment keeps the whole itinerary price unknown."""
+    segment keeps the whole itinerary price unknown. (Legacy fixture support.)"""
     prices = [s["price"] for s in segments]
     if any(p["status"] != "ok" for p in prices):
         status = "masked" if any(p["status"] == "masked" for p in prices) else "unavailable"
@@ -599,17 +692,21 @@ def run_flights(args):
         return error_result(result, QueryError(
             "past_date", "travel date is in the past", "unverified"))
     argv = list(FLIGHTS_TEMPLATE) + [
-        "--from", args.orig, "--to", args.dest, "--date", args.travel_date,
-        "--adults", str(args.adults),
+        "--origin", args.orig, "--destination", args.dest,
+        "--dep-date", args.travel_date,
     ]
     if args.return_date:
-        argv += ["--return-date", args.return_date]
+        argv += ["--back-date", args.return_date]
     if args.cabin:
-        argv += ["--cabin", args.cabin]
+        argv += ["--seat-class-name", args.cabin]
     if args.direct_only:
-        argv += ["--direct-only"]
+        argv += ["--journey-type", "1"]
     else:
-        argv += ["--max-transfers", str(args.max_transfers)]
+        argv += ["--journey-type", "2"] if args.max_transfers else ["--journey-type", "1"]
+    if args.earliest:
+        argv += ["--dep-hour-start", str(args.earliest)]
+    if args.latest < 24:
+        argv += ["--dep-hour-end", str(args.latest)]
     try:
         payload, attempts, sample_date = execute_query(argv, args, "flights")
         result = normalize_flights(payload, args)
@@ -625,43 +722,48 @@ def run_flights(args):
 
 
 def normalize_hotel_offer(raw, guests):
+    """One real-CLI hotel row: name/shId/price("¥1xxx"=masked)/lat/lon/…"""
     if not isinstance(raw, dict):
         raise ValueError("offer is not an object")
-    required = ("hotelName", "roomType")
-    if any(not isinstance(raw.get(k), str) or not raw.get(k) for k in required):
-        raise ValueError("offer misses hotelName/roomType")
-    price = normalize_price(raw.get("price"), raw.get("priceMasked"))
-    basis = normalize_basis(raw.get("priceBasis"))
-    max_guests = raw.get("maxGuests") if isinstance(raw.get("maxGuests"), int) \
-        and not isinstance(raw.get("maxGuests"), bool) else None
-    rating = raw.get("rating")
+    name = raw.get("name")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("offer misses name")
+    price = normalize_price(raw.get("price"))
+    rating = raw.get("rate")
     if (isinstance(rating, bool) or not isinstance(rating, (int, float))
             or not math.isfinite(rating) or not 0 <= rating <= 5):
         rating = None
-    lat, lon = raw.get("lat"), raw.get("lon")
+    lat, lon = raw.get("latitude"), raw.get("longitude")
+    if isinstance(lat, str) or isinstance(lon, str):
+        try:
+            lat, lon = float(lat), float(lon)
+        except (TypeError, ValueError):
+            lat, lon = None, None
     location = None
     if (isinstance(lat, (int, float)) and isinstance(lon, (int, float))
             and not isinstance(lat, bool) and not isinstance(lon, bool)
             and math.isfinite(lat) and math.isfinite(lon)):
         location = {"lat": round(float(lat), 6), "lon": round(float(lon), 6)}
-    hard_requirements_ok = max_guests is None or max_guests >= guests
     return {
-        "hotel_name": raw["hotelName"],
-        "hotel_id": raw.get("hotelId") if isinstance(raw.get("hotelId"), str) else None,
-        "room_type": raw["roomType"],
-        "beds": raw.get("beds") if isinstance(raw.get("beds"), str) else None,
-        "occupancy": {"max_guests": max_guests,
-                      "per_room": True if raw.get("perRoom") is not False else False},
-        "price": dict(price, basis=basis),
-        "taxes_fees": raw.get("taxesFees") if raw.get("taxesFees") in
-                      ("included", "excluded") else "unknown",
-        "breakfast": raw.get("breakfast") if isinstance(raw.get("breakfast"), str) else None,
-        "cancellation": raw.get("cancellation") if isinstance(raw.get("cancellation"), str) else None,
+        "hotel_name": name,
+        "hotel_id": raw.get("shId") if isinstance(raw.get("shId"), str) else None,
+        "room_type": raw.get("star") if isinstance(raw.get("star"), str) else None,
+        "address": raw.get("address") if isinstance(raw.get("address"), str) else None,
+        "brand": raw.get("brandName") if isinstance(raw.get("brandName"), str) else None,
+        "near_poi": raw.get("interestsPoi")
+        if isinstance(raw.get("interestsPoi"), str) else None,
+        # The real CLI returns hotel-level prices; room-level fields stay unknown.
+        "beds": None,
+        "occupancy": {"max_guests": None, "per_room": True},
+        "price": dict(price, basis="per-night-per-room"),
+        "taxes_fees": "unknown",
+        "breakfast": None,
+        "cancellation": None,
         "rating": rating,
         "location": location,  # 高德核验由 agent 决定;无坐标则未实测
         "detail_url": raw.get("detailUrl") if isinstance(raw.get("detailUrl"), str) else None,
-        "hard_requirements_ok": hard_requirements_ok,
-        # mainPic 有意不读取:未明确对应房型且未核验授权时不放图。
+        "main_pic": raw.get("mainPic") if isinstance(raw.get("mainPic"), str) else None,
+        "hard_requirements_ok": True,
     }
 
 
@@ -677,6 +779,10 @@ def organize_tiers(offers, guests, tier_count=None):
         offer["tier"] = None
     for index, offer in enumerate(ranked):
         offer["tier"] = index * count // max(1, len(ranked)) + 1
+    # Present offers price-sorted so tiers read low → high.
+    offers.sort(key=lambda o: (o["tier"] is None,
+                               o["price"]["amount_cny"]
+                               if o["price"]["status"] == "ok" else 10 ** 7))
     return offers
 
 
@@ -693,13 +799,13 @@ def normalize_hotels(payload, args):
         args.city, args.checkin, args.checkout, args.guests, args.rooms)
     if system_message:
         result["system_message"] = system_message
-    if demo:
+        result["experience_mode"] = demo
+    if demo and "非真实报价" in (system_message or ""):
         return error_result(result, QueryError("demo_mode", "flyai 体验模式输出", "demo"))
-    rows = payload.get("offers")
-    if rows is None:
-        rows = payload.get("hotels")
-    if not isinstance(rows, list):
-        raise QueryError("schema_mismatch", "hotels payload has no offers list", "unverified")
+    if demo:
+        result["status"] = "live"
+        result["experience_mode_notice"] = DEMO_NOTICE
+    rows = payload_rows(payload, "hotels")
     if not rows:
         result["status"] = "no_service"
         result["reason"] = "valid_empty_result"
@@ -730,8 +836,8 @@ def run_hotels(args):
         return error_result(base_result("hotels", args), QueryError(
             "invalid_date", "checkout must be after checkin", "unverified"))
     argv = list(HOTELS_TEMPLATE) + [
-        "--city", args.city, "--checkin", args.checkin, "--checkout", args.checkout,
-        "--guests", str(args.guests), "--rooms", str(args.rooms),
+        "--dest-name", args.city,
+        "--check-in-date", args.checkin, "--check-out-date", args.checkout,
     ]
     try:
         payload, attempts, sample_date = execute_query(argv, args, "hotels")
@@ -1101,21 +1207,13 @@ def run_doctor(args):
     report["cli"]["path"] = executable
     if executable is None:
         report["notes"].append(
-            "flyai CLI 未安装:深链与价格区间不受影响;安装后再运行 doctor 复核签名")
+            "flyai CLI 未安装: 深链与价格区间不受影响; 官方安装 `npm i -g {}` 后再运行 doctor".format(CLI_PACKAGE))
     else:
         try:
             completed = subprocess.run(
                 [executable] + VERSION_TEMPLATE, shell=False,
                 timeout=args.timeout or DOCTOR_TIMEOUT, capture_output=True,
                 text=True, encoding="utf-8", errors="replace")
-            if completed.returncode == 0 and completed.stdout:
-                report["cli"]["version"] = completed.stdout.strip().splitlines()[0][:200]
-        except (subprocess.TimeoutExpired, OSError):
-            report["notes"].append("flyai --version 超时或失败(不影响深链降级)")
-        try:
-            completed = subprocess.run(
-                [executable, "--help"], shell=False, timeout=args.timeout or DOCTOR_TIMEOUT,
-                capture_output=True, text=True, encoding="utf-8", errors="replace")
             help_text = (completed.stdout or "") + (completed.stderr or "")
         except (subprocess.TimeoutExpired, OSError):
             help_text = ""
@@ -1124,18 +1222,22 @@ def run_doctor(args):
             lines = [line.strip() for line in help_text.splitlines() if line.strip()]
             report["cli"]["help_head"] = lines[0][:200] if lines else None
             report["cli"]["signature_check"] = {
-                "flights": any("flights" in line for line in lines),
-                "hotels": any("hotels" in line for line in lines),
-                "format_json": "--format" in help_text and "json" in help_text,
+                "flights": any("search-flight" in line for line in lines),
+                "hotels": any("search-hotel" in line for line in lines),
+                "train": any("search-train" in line for line in lines),
             }
             if not all(report["cli"]["signature_check"].values()):
                 report["notes"].append(
-                    "CLI 签名与适配器假设不一致:先运行 flyai --help 人工核对,"
-                    "必要时修订 scripts/flyai_provider.py 的 CLI_TEMPLATE")
-    if not api_key_present():
+                    "CLI 签名与适配器契约不一致: 先人工核对 flyai --help,"
+                    "必要时修订 scripts/flyai_provider.py 的模板常量")
+    if api_key_present():
         report["notes"].append(
-            "{} 未设置:查询保持 unavailable,深链/价格区间完整可用".format(CLI_KEY_ENV))
-    live_capable = report["cli"]["found"] and api_key_present()
+            "{} 已设置: 解锁完整服务".format(CLI_KEY_ENV))
+    else:
+        report["notes"].append(
+            "{} 未设置: 官方 CLI 以体验模式运行(真实报价, 部分结果受限), "
+            "适配器如实标记 systemMessage".format(CLI_KEY_ENV))
+    live_capable = report["cli"]["found"]
     if live_capable:
         report["capabilities"] = {"flights": "live-capable", "hotels": "live-capable"}
         report["notes"].append("doctor 只读检查,未发起任何真实查询;首次真机查询前先小量只读验证")

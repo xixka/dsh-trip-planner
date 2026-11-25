@@ -2,61 +2,65 @@
   "tool": "flights",
   "sample_date": "2026-11-01",
   "result": {
-    "demoMode": false,
+    "status": 0,
+    "message": "success",
     "systemMessage": null,
-    "offers": [
-      {
-        "segments": [
-          {
-            "flightNo": "MU5415",
-            "airline": "中国东方航空",
-            "depAirport": "PVG",
-            "depTerminal": "T1",
-            "arrAirport": "CTU",
-            "arrTerminal": "T2",
-            "depDate": "2026-12-01",
-            "depTime": "07:30",
-            "arrDate": "2026-12-01",
-            "arrTime": "10:55",
-            "durationMinutes": 205,
-            "cabin": "economy",
-            "price": 480,
-            "detailUrl": "https://www.fliggy.com/flight/detail?flightNo=MU5415&date=2026-12-01"
-          },
-          {
-            "flightNo": "3U8633",
-            "airline": "四川航空",
-            "depAirport": "CTU",
-            "depTerminal": "T2",
-            "arrAirport": "KMG",
-            "arrTerminal": "T1",
-            "depDate": "2026-12-01",
-            "depTime": "13:10",
-            "arrDate": "2026-12-01",
-            "arrTime": "15:00",
-            "durationMinutes": 110,
-            "cabin": "economy",
-            "price": 340,
-            "detailUrl": "https://www.fliggy.com/flight/detail?flightNo=3U8633&date=2026-12-01"
-          }
-        ]
-      },
-      {
-        "flightNo": "MU5117",
-        "airline": "中国东方航空",
-        "depAirport": "PVG",
-        "depTerminal": "T1",
-        "arrAirport": "KMG",
-        "arrTerminal": "T1",
-        "depDate": "2026-12-01",
-        "depTime": "08:00",
-        "arrDate": "2026-12-01",
-        "arrTime": "11:25",
-        "durationMinutes": 205,
-        "cabin": "economy",
-        "price": 990,
-        "detailUrl": "https://www.fliggy.com/flight/detail?flightNo=MU5117&date=2026-12-01"
-      }
-    ]
+    "data": {
+      "itemList": [
+        {
+          "journeys": [
+            {
+              "journeyType": "直达",
+              "segments": [
+                {
+                  "depStationCode": "PVG", "depStationName": "浦东国际机场",
+                  "depTerm": "T1", "depDateTime": "2026-12-01 08:00:00",
+                  "arrStationCode": "KMG", "arrStationName": "长水机场",
+                  "arrTerm": "T1", "arrDateTime": "2026-12-01 11:25:00",
+                  "duration": "205", "marketingTransportName": "东航",
+                  "marketingTransportNo": "MU5117", "seatClassName": "经济舱",
+                  "quantity": "5", "stopInfos": null
+                }
+              ],
+              "totalDuration": "205", "transferDuration": ""
+            }
+          ],
+          "ticketPrice": "990.00", "totalDuration": "205",
+          "jumpUrl": "https://router.feizhu.com/multi/webview?url=sample-mu5117",
+          "tags": null
+        },
+        {
+          "journeys": [
+            {
+              "journeyType": "中转",
+              "segments": [
+                {
+                  "depStationCode": "PVG", "depStationName": "浦东国际机场",
+                  "depTerm": "T1", "depDateTime": "2026-12-01 07:30:00",
+                  "arrStationCode": "CTU", "arrStationName": "天府国际机场",
+                  "arrTerm": "T2", "arrDateTime": "2026-12-01 10:55:00",
+                  "duration": "205", "marketingTransportName": "东航",
+                  "marketingTransportNo": "MU5415", "seatClassName": "经济舱",
+                  "quantity": "9", "stopInfos": null
+                },
+                {
+                  "depStationCode": "CTU", "depStationName": "天府国际机场",
+                  "depTerm": "T2", "depDateTime": "2026-12-01 13:10:00",
+                  "arrStationCode": "KMG", "arrStationName": "长水机场",
+                  "arrTerm": "T1", "arrDateTime": "2026-12-01 15:00:00",
+                  "duration": "110", "marketingTransportName": "四川航空",
+                  "marketingTransportNo": "3U8633", "seatClassName": "经济舱",
+                  "quantity": "9", "stopInfos": null
+                }
+              ],
+              "totalDuration": "450", "transferDuration": "135"
+            }
+          ],
+          "ticketPrice": "820.00", "totalDuration": "450",
+          "jumpUrl": "https://router.feizhu.com/multi/webview?url=sample-transfer",
+          "tags": null
+        }
+      ]
+    }
   }
 }

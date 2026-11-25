@@ -2,106 +2,60 @@
   "tool": "hotels",
   "sample_date": "2026-11-01",
   "result": {
-    "demoMode": false,
+    "status": 0,
+    "message": "success",
     "systemMessage": null,
-    "offers": [
-      {
-        "hotelName": "乌镇西栅精品客栈",
-        "hotelId": "H1001",
-        "roomType": "标准大床房",
-        "beds": "1张1.5米大床",
-        "maxGuests": 2,
-        "price": 320,
-        "priceBasis": "per-night-per-room",
-        "taxesFees": "included",
-        "breakfast": "含双早",
-        "cancellation": "入住前1天18:00前免费取消",
-        "rating": 4.7,
-        "lat": 30.7461,
-        "lon": 120.4871,
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1001&checkin=2026-12-01&checkout=2026-12-03",
-        "mainPic": "https://img.example/fliggy/h1001-main.jpg"
-      },
-      {
-        "hotelName": "乌镇通安客栈",
-        "hotelId": "H1002",
-        "roomType": "高级双床房",
-        "beds": "2张1.2米单人床",
-        "maxGuests": 3,
-        "price": 110,
-        "priceBasis": "per-night-per-person",
-        "taxesFees": "excluded",
-        "breakfast": "无早",
-        "cancellation": "不可取消",
-        "rating": 4.4,
-        "lat": 30.7501,
-        "lon": 120.4892,
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1002&checkin=2026-12-01&checkout=2026-12-03"
-      },
-      {
-        "hotelName": "乌镇枕水度假酒店",
-        "hotelId": "H1003",
-        "roomType": "临水景观大床房",
-        "beds": "1张1.8米大床",
-        "maxGuests": 2,
-        "price": 1080,
-        "priceBasis": "total-per-room",
-        "taxesFees": "unknown",
-        "breakfast": "含双早",
-        "cancellation": "unknown",
-        "rating": 4.9,
-        "lat": 30.7445,
-        "lon": 120.4855,
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1003&checkin=2026-12-01&checkout=2026-12-03"
-      },
-      {
-        "hotelName": "乌镇子夜大酒店",
-        "hotelId": "H1004",
-        "roomType": "豪华套房",
-        "beds": "1张大床 + 沙发床",
-        "maxGuests": 4,
-        "price": 1400,
-        "priceBasis": null,
-        "taxesFees": "unknown",
-        "breakfast": "unknown",
-        "cancellation": "unknown",
-        "rating": null,
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1004&checkin=2026-12-01&checkout=2026-12-03"
-      },
-      {
-        "hotelName": "乌镇子夜大酒店",
-        "hotelId": "H1004",
-        "roomType": "经济单人间",
-        "beds": "1张1.2米床",
-        "maxGuests": 1,
-        "price": 260,
-        "priceBasis": "per-night-per-room",
-        "taxesFees": "unknown",
-        "breakfast": "无早",
-        "cancellation": "unknown",
-        "rating": null,
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1004&checkin=2026-12-01&checkout=2026-12-03"
-      },
-      {
-        "hotelName": "乌镇明里别院",
-        "hotelId": "H1005",
-        "roomType": "亲子家庭房",
-        "beds": "1张大床 + 1张儿童床",
-        "maxGuests": 3,
-        "price": 480,
-        "priceBasis": "per-night-per-room",
-        "taxesFees": "excluded",
-        "breakfast": "含双早",
-        "cancellation": "入住前3天免费取消",
-        "rating": 4.6,
-        "lat": 30.7432,
-        "lon": 120.4831,
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1005&checkin=2026-12-01&checkout=2026-12-03"
-      },
-      {
-        "hotelName": "损坏行示例（无房型字段）",
-        "hotelId": "BROKEN"
-      }
-    ]
+    "data": {
+      "itemList": [
+        {
+          "name": "乌镇西栅精品客栈", "shId": "H1001", "star": "舒适型",
+          "brandName": null, "address": "乌镇西栅景区内",
+          "price": "320.00", "rate": 4.7,
+          "latitude": "30.7461", "longitude": "120.4871",
+          "interestsPoi": "近西栅大街",
+          "detailUrl": "https://router.feizhu.com/multi/webview?url=sample-h1001",
+          "mainPic": "https://img.example/fliggy/h1001-main.jpg"
+        },
+        {
+          "name": "乌镇通安客栈", "shId": "H1002", "star": "高档型",
+          "brandName": null, "address": "乌镇子夜路",
+          "price": "110.00", "rate": 4.4,
+          "latitude": "30.7501", "longitude": "120.4892",
+          "interestsPoi": "近通安桥",
+          "detailUrl": "https://router.feizhu.com/multi/webview?url=sample-h1002",
+          "mainPic": null
+        },
+        {
+          "name": "乌镇枕水度假酒店", "shId": "H1003", "star": "豪华型",
+          "brandName": null, "address": "乌镇枕水路",
+          "price": "1080.00", "rate": 4.9,
+          "latitude": "30.7445", "longitude": "120.4855",
+          "interestsPoi": "近枕水廊",
+          "detailUrl": "https://router.feizhu.com/multi/webview?url=sample-h1003",
+          "mainPic": null
+        },
+        {
+          "name": "乌镇子夜大酒店", "shId": "H1004", "star": "高档型",
+          "brandName": null, "address": "乌镇子夜路 1 号",
+          "price": "¥1xxx", "rate": null,
+          "latitude": null, "longitude": null,
+          "interestsPoi": null,
+          "detailUrl": "https://router.feizhu.com/multi/webview?url=sample-h1004",
+          "mainPic": null
+        },
+        {
+          "name": "乌镇明里别院", "shId": "H1005", "star": "舒适型",
+          "brandName": null, "address": "乌镇明里路",
+          "price": "480.00", "rate": 4.6,
+          "latitude": "30.7432", "longitude": "120.4831",
+          "interestsPoi": "近明里桥",
+          "detailUrl": "https://router.feizhu.com/multi/webview?url=sample-h1005",
+          "mainPic": null
+        },
+        {
+          "shId": "BROKEN"
+        }
+      ]
+    }
   }
 }

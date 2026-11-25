@@ -1,41 +1,61 @@
-# 飞猪 flyai 机票与酒店查询（可选增强）
+# 飞猪 flyai 机票与酒店查询（可选增强·官方 CLI 已实测）
 
 `scripts/flyai_provider.py` 为 Phase 3 增加机票与酒店的只读实时候选。它是**可选**
-的飞猪 flyai CLI 适配器：无 CLI、无 `FLYAI_API_KEY`、体验模式或查询失败时，完整
-回退 `flight_scan.py` 的机票深链与酒店价格区间（估算），旧计划、旧字段、人工核验
-和旧渲染完全不依赖本能力。
+的飞猪官方 flyai CLI 适配器：无 CLI 或查询失败时，完整回退 `flight_scan.py` 的机票
+深链与酒店价格区间（估算），旧计划、旧字段、人工核验和旧渲染完全不依赖本能力。
 
 边界：不自动安装 CLI，不登录，不启动浏览器，不抓取搜索页，不下单，不收集乘客
 信息；密钥只经环境（含项目 `.env` 规则：`os.environ.setdefault`，不覆盖已有值）
 传递，绝不进入命令行参数、日志、fixture、缓存或 HTML。
 
-## 重要：CLI 契约未实测
+## CLI 来源与契约（2026-11-25 真机核验）
 
-本适配器编写时环境中没有 flyai CLI，无法先运行 `flyai --help` 核对。脚本顶部的
-`FLIGHTS_TEMPLATE`/`HOTELS_TEMPLATE`（子命令与旗标）是**假设契约**，包括：
-
-| 项 | 假设值 |
+| 项 | 已核验值 |
 |---|---|
-| 版本探测 | `flyai --version` |
-| 机票 | `flyai flights --from IATA --to IATA --date YYYY-MM-DD [--return-date …] [--adults N] [--cabin …] [--direct-only\|--max-transfers N] --format json` |
-| 酒店 | `flyai hotels --city 名称 --checkin … --checkout … --guests N --rooms N --format json` |
-| 输出 | stdout 一个 JSON 对象：`{"demoMode": bool, "systemMessage": str|null, "offers": [...]}` |
-| 机票 offer | `flightNo/airline/depAirport/depTerminal/arrAirport/arrTerminal/depDate/depTime/arrDate/arrTime/durationMinutes/cabin/price/priceMasked/detailUrl`（中转放 `segments[]`，≤2 段） |
-| 酒店 offer | `hotelName/hotelId/roomType/beds/maxGuests/price/priceMasked/priceBasis/taxesFees/breakfast/cancellation/rating/lat/lon/detailUrl/mainPic` |
+| 上游 | `alibaba-flyai/flyai-skill`（阿里飞猪官方组织，MIT，1297★） |
+| CLI | npm `@fly-ai/flyai-cli` 1.0.16（maintainer `open-flyai <flyai@alibaba-inc.com>`） |
+| 安装 | `npm i -g @fly-ai/flyai-cli`（Node 18+；一条命令，官方发行渠道） |
+| 传输 | streamable_http；stdout 单行 JSON，错误/提示走 stderr |
+| API Key | **可选**——无 key 时 CLI 以体验模式运行（真实报价，部分结果受限） |
 
-**首次真实使用前必须先运行 `doctor`**：
+适配器内的命令模板/字段映射在 2026-11-25 对照真实 `--help` 与真机输出逐项核验：
+
+| 项 | 真实契约 |
+|---|---|
+| 机票 | `flyai search-flight --origin … --destination … --dep-date YYYY-MM-DD [--back-date] [--journey-type 1\|2] [--seat-class-name economy,business,first] [--dep-hour-start/--dep-hour-end] [--max-price] [--sort-type 1-8]` |
+| 酒店 | `flyai search-hotel --dest-name … [--check-in-date] [--check-out-date] [--key-words] [--poi-name] [--hotel-stars 1-5] [--hotel-bed-types 大床房,双床房,多床房] [--max-price] [--sort distance_asc\|rate_desc\|price_asc\|price_desc\|no_rank]` |
+| 其他 | `search-train` / `search-poi` / `keyword-search` / `ai-search` / 万豪×2（本适配器暂未接入） |
+| 信封 | `{"data": {"itemList": [...]}, "message": str, "status": 0, "systemMessage": str}`；无 `--format` 旗标（输出恒为 JSON） |
+| 机票行 | `journeys[].segments[]`（`depDateTime`/`arrDateTime` = `YYYY-MM-DD HH:MM:SS`、`depStationCode/Name`、`marketingTransportName/No`、`duration` 分钟字符串、`seatClassName` 经济舱/商务舱/头等舱、`quantity` 余座、经停走 `stopInfos`）+ 信封 `ticketPrice`（`"450.00"`）+ `jumpUrl` |
+| 酒店行 | `name/shId/star/rate/price/latitude/longitude/detailUrl/mainPic/address/brandName/interestsPoi`；**体验模式下酒店价格是数字遮蔽**（`"¥1xx"`/`"¥8x"`） |
+
+注意：`--version` 旗标不存在（doctor 改用 `--help` 核验签名）。
+
+## 安装与 doctor
 
 ```bash
-python3 scripts/flyai_provider.py doctor
+npm i -g @fly-ai/flyai-cli          # 官方 CLI（可选）
+python3 scripts/flyai_provider.py doctor   # 只读体检：CLI 路径/签名/Key 存在性
 ```
 
-doctor 会运行 `flyai --help`/`--version`（带超时，只读），逐项核验假设旗标是否
-出现在 help 中；签名不符时 capabilities 降级为不可用并提示先人工核对 `flyai --help`，
-再按实际参数修改脚本顶部的模板常量。真机只做少量只读验证，未实测的一律明说。
+doctor 不发任何查询，只打印 key 是否存在（绝不打印值）；签名不符时 capabilities
+照常报告，但 notes 提示先人工核对 `flyai --help` 再修订模板常量。
+
+## 体验模式（无 Key）的诚实语义
+
+无 `FLYAI_API_KEY` 时 CLI 正常工作但 `systemMessage` 会声明体验模式。适配器区分
+两种情况：
+
+- **真实报价 + 体验声明**（真机默认形态）：状态仍为 `live`、候选照常规范化，
+  附加 `experience_mode: true` 与 `experience_mode_notice`（部分结果受限说明）；
+- **声明"非真实报价"**（示例数据）：状态强制 `demo`，候选清空，绝不写计划。
+
+酒店价格在体验模式下是数字遮蔽（`¥1xx`），适配器如实标记 `masked`，
+**绝不按数量级猜测**；masked/缺失候选不参与分档，保留原样供人工核对。
 
 ## 统一返回结构
 
-每个查询（机票/酒店）都返回同一信封：
+每个查询（机票/酒店）都返回同一信封（与 train_live 同构）：
 
 ```json
 {
@@ -45,7 +65,8 @@ doctor 会运行 `flyai --help`/`--version`（带超时，只读），逐项核�
   "queried_at": "北京时间 ISO8601 或 null（样本）",
   "timezone": "Asia/Shanghai",
   "status": "live|sample|demo|no_service|unavailable|unverified",
-  "status_reason": "...", "system_message": "来自 CLI 的 systemMessage（透传）",
+  "experience_mode": true|false,
+  "system_message": "来自 CLI 的 systemMessage（透传）",
   "query": {...}, "query_key": "...",
   "offers": [...], "recommendations": {"primary": 0, "backup": 1},
   "notice": "...", "attempts": 1, "error": {"class", "message"},
@@ -57,11 +78,11 @@ doctor 会运行 `flyai --help`/`--version`（带超时，只读），逐项核�
 
 | status | 含义 | 写入计划 |
 |---|---|---|
-| live | CLI 成功、JSON 合法、非体验模式、至少一条合规候选 | 可 |
+| live | CLI 成功、JSON 合法、至少一条合规候选（含无 key 体验模式的真实报价） | 可 |
 | sample | 离线 fixture（必须带 sample_date，永不冒充 live） | 否 |
-| demo | 体验模式（`demoMode`/`demo` 或 systemMessage 提到 体验/演示/沙箱） | 否 |
+| demo | CLI 明示"非真实报价"（示例数据） | 否 |
 | no_service | 查询成功但无候选（明确空列表） | 否 |
-| unavailable | key 缺失、CLI 缺失、超时、非零退出、限流 | 否 |
+| unavailable | CLI 缺失、超时、非零退出、限流 | 否 |
 | unverified | 输出畸形、schema 不符、日期为过去 | 否 |
 
 错误分类与重试：超时重试一次（`--retries`，默认 1）；限流/429 不重试；单点失败
@@ -72,84 +93,46 @@ errors="replace"` 覆盖。
 
 ## 机票
 
-筛选：日期、机场三字码/城市名、`--adults` 人数、`--cabin` 舱等、`--earliest/--latest`
-出发时段、`--direct-only`/`--max-transfers`、`--limit`（默认 3，≤5）。规范化输出
-航班号、航司、机场/航站楼、起降日期时间（含次日到）、历时、舱等、人民币参考价、
-`detailUrl`；往返日期透传查询，但推荐按去程。
+筛选：日期、城市名/机场三字码、`--adults` 人数（适配器本地筛选与深链）、
+`--cabin` 舱等（映射 CLI 的 `--seat-class-name`）、`--earliest/--latest`
+出发时段（映射 `--dep-hour-start/end`）、`--direct-only`（映射 `--journey-type 1`）、
+`--limit`（默认 3，≤5）。规范化输出航班号、航司、机场/航站楼、起降日期时间
+（含次日到）、历时、舱等、余座数、人民币参考价、`jumpUrl` 深链。
 
 排序**不只看低价**：直飞优先、历时其次、价格第三；价格未知（遮蔽/缺失）的候选保留
-在列表但排最后。遮蔽价 `price.status="masked"`、缺失 `"unavailable"`，amount 一律
-null，绝不推测。行李额与退改规则默认未知：只写“未实测，点开核对”，绝不编造。
-
-`--plan plan.geo.json --write`（仅 live）：手工行按 日期+from/to 匹配，只追加可选的
-`flight_live` 对象，legacy 字段一字不动；没有匹配行时新增 `_flyai_managed` 行，
-price 写“¥X（flyai 查询时参考价·单源）”、note 带 `queried_at` 与提醒，bags/
-refund_change 标未实测。budget[] 永不改动：实时参考价只进 legs，估算仍留在 budget，
-两者口径分开、不重复计。
+在列表末位，绝不丢弃、绝不猜测。中转方案的信封价直接采用（CLI 已给出整程价），
+不自行加总。
 
 ## 酒店
 
-按真实 `--checkin/--checkout/--guests/--rooms` 查询。每条 offer 记录：酒店名、房型、
-床位、`occupancy.max_guests`、价格与**口径**（`priceBasis`：per-night-per-room /
-per-night-per-person / total-per-room / total-per-person / unknown）、税费
-（included/excluded/unknown）、早餐、取消政策、评分、坐标、来源时间与链接。
+CLI 返回酒店级每晚价。适配器输出酒店名、shId、档次（`star`）、地址、品牌、
+附近 POI、评分、坐标（WGS84 由高德核验后使用）、`detailUrl`；`mainPic` 仅作
+元数据保留、绝不渲染进计划（未核验授权）。`guests/--rooms` 只影响本地展示与
+合并上限，不透传给 CLI（真实契约无此旗标）。
 
-口径规则：`per-night-per-room` 且晚数明确时才给“N 晚合计”；口径未知一律标注
-“口径未知,勿加总”，绝不加总。分档（`organize_tiers`）：只把**满足硬要求**
-（maxGuests ≥ 人数，未知不淘汰但也不凑档）且价格口径明确的候选按价格升序组织
-1–3 档；不满足硬要求的房型不拿来凑档，遮蔽/未知价的候选保留原样供人工核对。
-`mainPic` 有意不读取：未明确对应房型且未核验授权时不放图。坐标留给高德人工核验；
-无数据则标未实测。
+按价格组织 2–3 档：masked/缺失价不参与分档；档内与档间都按价格升序展示。
 
-`--plan … --base 乌镇 --write`（仅 live）：按 `hotels[].base` 子串匹配目标行，**增量
-追加** `options[]`（legacy name/band/link 兼容 + 可选 `flyai` 对象含全部明细与
-`queried_at`）；同名房型去重；无匹配时新增 `_flyai_managed` 酒店行（area/why 留给
-人工补充）。已有手工 options 永不修改，budget 永不改动。
+## 计划合并（仅 live）
 
-## 渲染
+- 机票：已有同日同航线人工行 → 只加 `flight_live` 子对象，人工字段原样保留；
+  无匹配 → 追加 `_flyai_managed` 行（含全部旧渲染字段）。
+- 酒店：`--base` 匹配 `hotels[].base` → 增量扩展 `options[]`（名字去重）；
+  不匹配 → 追加受管行。
+- sample/demo/unavailable/unverified 一律不写文件；原子写回只发生在成功合并后。
 
-`themes/theme_common.py` 新增共用安全格式化函数 `hotel_option_extra(option)`：
-读 `options[].flyai` 可选对象，全部值 esc 转义后拼一行 dim 文案（房型·床位·人数·
-价格与口径·税费·早餐·取消·评分·档位·查询时间·参考价）；无 `flyai` 字段的旧
-options 返回空串，七个主题（illustrated/clay/noir/glass/journal/zine/splash）与
-`scripts/render_plan.py` 的旧输出 byte-identical（已用 china-2026 样例回归验证）。
-遮蔽/未知价格只显示“价格遮蔽,点开核对”，绝不变造成数字。
+## 离线 fixture 与 CI
 
-## 安装与降级
+所有测试均不调用 CLI、不访问飞猪、不读真实 key。fixtures 已按真实 CLI 信封
+schema 重写（`tests/fixtures/flyai/`），覆盖：直达与主备、中转两段、次日到、
+masked 价、体验模式两种形态（真实报价 vs 非真实报价）、空列表、畸形输出、
+非零退出、stdout 噪声、缺字段隔离、旧计划合并与旧渲染兼容。
 
-flyai CLI 与 key 都由用户自行安装/申请（本仓库不自动安装任何依赖）：
+## 真机验证记录
 
-```bash
-# .env（已 gitignore）
-FLYAI_API_KEY=你的飞猪开放平台key
-# 可选:CLI 不在 PATH 时指定路径
-FLYAI_CLI=/absolute/path/flyai
-```
+2026-11-25 23:37–23:48（北京时间，只读查询，无 key 体验模式）：
 
-无 CLI/无 key/体验模式/失败 → `unavailable|demo` + 完整的 `flight_scan.py` 深链
-（携程/Trip.com/去哪儿机票、携程酒店列表链接），价格区间估算不动，旧页面照常渲染。
-`flight_scan.py` 保留为第二入口与降级路径，永不移除。
-
-## 测试与 fixture
-
-```bash
-python3 -m unittest -v tests/test_flyai_provider.py
-npm test          # 插件自检 + Python 套件（CI 不访问真实服务）
-```
-
-`tests/fixtures/flyai/` 覆盖：正常直飞/中转/次日到达、遮蔽价、体验模式、缺字段、
-空结果、CLI 缺失（key_missing）、超时、限流、非零退出、噪声边界、畸形输出、酒店
-多价格口径、酒店遮蔽价与旧计划。fixture 信封 `{"tool", "sample_date", "result"}`
-（样本必须带 sample_date，永不冒充 live）；错误模拟 `{"tool", "error": {...}}`；
-CLI 退出模拟 `{"tool", "exit": {"returncode", "stdout", "stderr"}}`（成功模拟同样
-必须带 sample_date）。
-
-重点断言：样本不冒充 live、demo 与 unavailable 不混淆、限流不重试、遮蔽价不猜、
-口径未知不加总、人工字段不变、budget 不重复、旧渲染 byte-identical、key 不进
-argv/输出。
-
-## 验证边界
-
-本次开发**未安装 flyai CLI、未申请 key、未访问飞猪真实服务、未做真机 live 验证**；
-CLI 契约是假设的（见上表）。交付 Agent 首次使用前必须：运行 doctor 核对签名 →
-少量只读查询成功 → 再把 live 结果写计划；任何未实测/失败项保持深链人工核验。
+- `search-flight` 上海→昆明 2026-12-02：live，MU2508+MU5479 ¥560（8 座）、
+  MU9744 直飞 ¥523（3 座），detailUrl 均为 router.feizhu.com 可跳转；
+- `search-hotel` 杭州 2026-12-02~04：live，10 家候选，价格全部数字遮蔽
+  （`¥1xx` 形态）→ 如实标 masked，坐标/detailUrl 完整；
+- doctor：CLI 路径、签名（search-flight/search-hotel/search-train）全过。

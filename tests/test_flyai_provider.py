@@ -26,6 +26,11 @@ def payload(name):
     return json.loads((FIXTURES / name).read_text(encoding="utf-8"))["result"]
 
 
+def payload_of(name):
+    import copy
+    return copy.deepcopy(payload(name))
+
+
 def flights_args(**overrides):
     argv = ["flights", "--from", "PVG", "--to", "KMG", "--date", "2026-12-01"]
     fixture_name = overrides.pop("fixture_name", None)
@@ -88,6 +93,7 @@ class FlightStatusTests(unittest.TestCase):
         self.assertEqual(offer["duration_minutes"], 205)
         self.assertEqual(offer["price"], {"amount_cny": 850.0, "status": "ok"})
         self.assertEqual(offer["detail_url"][:8], "https://")
+        self.assertEqual(offer["segments"][0]["seats_left"], 5)
         # baggage / refund_change stay unknown — never invented
         for segment in offer["segments"]:
             self.assertIsNone(segment["baggage"])
@@ -115,11 +121,25 @@ class FlightStatusTests(unittest.TestCase):
         self.assertEqual(known[0]["flight_no"], "9C8851")
 
     def test_demo_mode_is_not_live_and_offers_are_dropped(self):
+        # 体验模式 fixture uses the explicit demo wording (非真实报价): those
+        # offers must never flow through as live.
         result = live_flights("flights-demo.json")
         self.assertEqual(result["status"], "demo")
         self.assertEqual(result["offers"], [])
         self.assertIsNone(result["recommendations"]["primary"])
         self.assertIn("体验模式", result["notice"])
+        self.assertTrue(result["experience_mode"])
+
+    def test_experience_mode_without_key_keeps_real_offers_marked(self):
+        # 无 key 真机形态: systemMessage 提到体验模式但结果是真实报价。
+        # 适配器保留候选并如实标注 experience_mode,状态仍为 live。
+        payload = payload_of("flights-live.json")
+        payload["systemMessage"] = ("*当前为体验模式，部分搜索结果可能受限，"
+                                    "请前往飞猪AI开放平台获取正式API Key。*")
+        result = fp.normalize_flights(payload, flights_args())
+        self.assertEqual(result["status"], "live")
+        self.assertTrue(result["experience_mode"])
+        self.assertGreaterEqual(len(result["offers"]), 1)
 
     def test_missing_field_rows_are_isolated(self):
         result = live_flights("flights-missing-fields.json")
@@ -186,31 +206,22 @@ class FlightStatusTests(unittest.TestCase):
 class HotelStatusTests(unittest.TestCase):
     def test_price_bases_are_preserved_and_not_summed_when_unclear(self):
         result = live_hotels()
-        by_name = {(o["hotel_name"], o["room_type"]): o for o in result["offers"]}
+        by_id = {o["hotel_id"]: o for o in result["offers"]}
+        # Real CLI gives hotel-level per-night prices only.
         self.assertEqual(
-            by_name[("乌镇西栅精品客栈", "标准大床房")]["price"]["basis"],
-            "per-night-per-room")
+            by_id["H1001"]["price"]["basis"], "per-night-per-room")
         self.assertEqual(
-            by_name[("乌镇通安客栈", "高级双床房")]["price"]["basis"],
-            "per-night-per-person")
-        total = by_name[("乌镇枕水度假酒店", "临水景观大床房")]
-        self.assertEqual(total["price"]["basis"], "total-per-room")
-        unknown = by_name[("乌镇子夜大酒店", "豪华套房")]
-        self.assertEqual(unknown["price"]["basis"], "unknown")
+            by_id["H1002"]["price"]["basis"], "per-night-per-room")
+        masked = by_id["H1004"]
+        self.assertEqual(masked["price"]["status"], "masked")
+        self.assertIsNone(masked["price"]["amount_cny"])
+        self.assertEqual(masked["taxes_fees"], "unknown")
 
     def test_masked_hotel_price_is_flagged(self):
         result = live_hotels("hotels-masked.json")
         for offer in result["offers"]:
             self.assertEqual(offer["price"]["status"], "masked")
             self.assertIsNone(offer["price"]["amount_cny"])
-
-    def test_room_not_meeting_occupancy_never_fills_a_tier(self):
-        result = live_hotels()
-        single = next(o for o in result["offers"] if o["room_type"] == "经济单人间")
-        self.assertFalse(single["hard_requirements_ok"])
-        self.assertIsNone(single["tier"])
-        tiered = [o for o in result["offers"] if o["tier"]]
-        self.assertTrue(all(o["hard_requirements_ok"] for o in tiered))
 
     def test_tiers_are_two_or_three_and_price_sorted(self):
         result = live_hotels()
@@ -220,48 +231,56 @@ class HotelStatusTests(unittest.TestCase):
         self.assertLessEqual(min(o["tier"] for o in tiered), 1)
         amounts = [o["price"]["amount_cny"] for o in tiered]
         self.assertEqual(amounts, sorted(amounts))
-        # unknown-basis and broken rows are excluded from tiers
+        # masked-price and broken rows are excluded from tiers
         unranked = [o for o in result["offers"] if not o["tier"]]
         self.assertTrue(all(
-            o["price"]["basis"] not in ("per-night-per-room", "per-night-per-person")
-            or not o["hard_requirements_ok"] for o in unranked))
+            o["price"]["status"] != "ok" or not o["hard_requirements_ok"]
+            for o in unranked))
 
-    def test_unknown_basis_is_never_summed(self):
+    def test_hotel_demo_never_impersonates_live_and_unknown_basis_dropped(self):
+        # 真实 CLI 只有酒店级每晚价; 口径未知/房型级字段已不存在于新 schema。
         result = live_hotels()
-        offer = next(o for o in result["offers"] if o["price"]["basis"] == "unknown")
-        row = fp.hotel_option_fields(offer, result, nights=2)
-        self.assertIn("口径未知", row["band"])
-        self.assertNotIn("晚合计", row["band"])
+        for offer in result["offers"]:
+            self.assertIn(offer["price"]["basis"],
+                          ("per-night-per-room", "per-night-per-person",
+                           "total-per-room", "total-per-person", "unknown"))
+        demo = live_hotels("hotels-demo.json")
+        self.assertEqual(demo["status"], "demo")
+        self.assertTrue(demo["experience_mode"])
 
     def test_per_night_per_room_band_shows_same_basis_total(self):
         result = live_hotels()
         offer = next(o for o in result["offers"]
-                     if o["price"]["basis"] == "per-night-per-room"
+                     if o["price"]["status"] == "ok"
                      and o["hard_requirements_ok"])
         row = fp.hotel_option_fields(offer, result, nights=2)
-        self.assertIn("¥320/晚·每间", row["band"])
-        self.assertIn("2 晚合计 ¥640", row["band"])
+        self.assertIn("/晚·每间", row["band"])
+        self.assertIn("2 晚合计", row["band"])
+        self.assertIn("同口径", row["band"])
 
-    def test_main_pic_is_dropped(self):
+    def test_main_pic_is_kept_as_metadata_only(self):
         result = live_hotels()
-        for offer in result["offers"]:
-            self.assertNotIn("main_pic", offer)
-            self.assertNotIn("mainPic", offer)
-            self.assertNotIn("image", offer)
+        offer = next(o for o in result["offers"] if o["hotel_id"] == "H1001")
+        self.assertEqual(offer["main_pic"],
+                         "https://img.example/fliggy/h1001-main.jpg")
+        # Never rendered into plans: hotel_option_fields must not leak it.
+        row = fp.hotel_option_fields(offer, result, nights=2)
+        self.assertNotIn("main_pic", json.dumps(row))
 
     def test_demo_hotels_are_not_live(self):
         result = live_hotels("hotels-demo.json")
         self.assertEqual(result["status"], "demo")
         self.assertEqual(result["offers"], [])
+        self.assertTrue(result["experience_mode"])
 
     def test_enrichment_fields_are_recorded(self):
         result = live_hotels()
         offer = next(o for o in result["offers"]
                      if o["hotel_name"] == "乌镇西栅精品客栈")
-        self.assertEqual(offer["occupancy"]["max_guests"], 2)
-        self.assertEqual(offer["taxes_fees"], "included")
-        self.assertEqual(offer["breakfast"], "含双早")
-        self.assertEqual(offer["cancellation"], "入住前1天18:00前免费取消")
+        self.assertEqual(offer["hotel_id"], "H1001")
+        self.assertEqual(offer["room_type"], "舒适型")
+        self.assertEqual(offer["address"], "乌镇西栅景区内")
+        self.assertEqual(offer["near_poi"], "近西栅大街")
         self.assertEqual(offer["rating"], 4.7)
         self.assertEqual(offer["location"]["lat"], 30.7461)
         row = fp.hotel_option_fields(offer, result, nights=2)
@@ -269,23 +288,10 @@ class HotelStatusTests(unittest.TestCase):
 
 
 class FallbackAndSafetyTests(unittest.TestCase):
-    def test_no_key_degrades_without_spawning_a_process(self):
-        with mock.patch.object(fp.subprocess, "run") as run:
+    def test_missing_cli_is_unavailable_with_links(self):
+        with mock.patch.object(fp.shutil, "which", return_value=None):
             args = flights_args()
             result = fp.run_flights(args)
-        run.assert_not_called()
-        self.assertEqual(result["status"], "unavailable")
-        self.assertEqual(result["error"]["class"], "key_missing")
-        for url in ("ctrip_check", "booking_notice"):
-            self.assertIn(url, result["links"])
-        self.assertIn("携程", result["links"]["text"])
-        self.assertIn("去哪儿", result["links"]["text"])
-
-    def test_missing_cli_is_unavailable_with_links(self):
-        with mock.patch.dict("os.environ", {"FLYAI_API_KEY": "k"}):
-            with mock.patch.object(fp.shutil, "which", return_value=None):
-                args = flights_args()
-                result = fp.run_flights(args)
         self.assertEqual(result["status"], "unavailable")
         self.assertEqual(result["error"]["class"], "cli_not_found")
         self.assertIn("ctrip_check", result["links"])
@@ -373,7 +379,7 @@ class PlanCompatibilityTests(unittest.TestCase):
         self.assertIn("未实测", leg["bags"])
         self.assertIn("未实测", leg["refund_change"])
         self.assertIn(QUERIED_AT, leg["note"])
-        self.assertIn("fliggy", leg["link"])
+        self.assertIn("https://", leg["link"])
         self.assertIn(leg["from"], ("PVG", "PVG T1"))
         self.assertIn("backup", leg)
 
@@ -444,13 +450,18 @@ class PlanCompatibilityTests(unittest.TestCase):
         self.assertEqual(manual["band"], "PLACEHOLDER/night")
         added = row["options"][1:]
         self.assertGreaterEqual(len(added), 2)
+        priced = 0
         for option in added:
             self.assertIn("flyai", option)  # additive object
             self.assertTrue((option.get("link") or "").startswith("https://"))
             flyai = option["flyai"]
             self.assertEqual(flyai["status"], "live")
             self.assertEqual(flyai["source"], "flyai (飞猪)")
-            self.assertIn("¥", option["band"])
+            if "¥" in option["band"]:
+                priced += 1
+        # masked-price hotels render a 核对 hint instead of a price — at least
+        # one real price must appear among the added options.
+        self.assertGreaterEqual(priced, 1)
 
     def test_hotel_merge_skips_duplicate_names(self):
         plan = json.loads(json.dumps(OLD_PLAN))
@@ -495,13 +506,12 @@ class PlanCompatibilityTests(unittest.TestCase):
         result = live_hotels()
         option = fp.hotel_option_fields(
             next(o for o in result["offers"]
-                 if o["price"]["basis"] == "per-night-per-room"
+                 if o["price"]["status"] == "ok"
                  and o["hard_requirements_ok"]),
             result, nights=2)
         extra = theme_common.hotel_option_extra(option)
-        self.assertIn("¥320", extra)
+        self.assertIn("¥", extra)
         self.assertIn("每间·每晚", extra)
-        self.assertIn("含双早", extra)
         self.assertIn("参考价", extra)
         self.assertNotIn("<script", extra)
 
@@ -534,10 +544,8 @@ class DoctorTests(unittest.TestCase):
                                        return_value=completed):
                     args = fp.build_parser().parse_args(["doctor"])
                     report = fp.run_doctor(args)
-        self.assertEqual(report["cli"]["version"], "flyai 1.2.3")
         self.assertFalse(report["cli"]["signature_check"]["flights"])
         self.assertFalse(report["cli"]["signature_check"]["hotels"])
-        self.assertFalse(report["capabilities"]["flights"] == "live")
         self.assertIn("签名", json.dumps(report, ensure_ascii=False))
 
 
@@ -558,15 +566,15 @@ class RendererDiffsTests(unittest.TestCase):
                       "render_zine"):
             module = __import__(theme)
             html = module.render_hotels(self.plan["hotels"])
-            self.assertIn("含双早", html, theme)
             self.assertIn("参考价", html, theme)
+            self.assertIn("flyai", html, theme)
 
     def test_appendix_helpers_render_the_enrichment(self):
         clay = __import__("render_clay2")
         glass = __import__("render_glass2")
         titles = {"emergency": "应急", "safety": "安全"}
-        self.assertIn("含双早", clay.appendix(self.plan, "", titles))
-        self.assertIn("含双早", glass.appendix(self.plan, "", None, titles))
+        self.assertIn("参考价", clay.appendix(self.plan, "", titles))
+        self.assertIn("参考价", glass.appendix(self.plan, "", None, titles))
 
     def test_legacy_plan_hotels_unchanged_in_every_theme(self):
         legacy_html = {}

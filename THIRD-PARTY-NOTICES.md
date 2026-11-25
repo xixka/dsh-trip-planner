@@ -30,10 +30,11 @@ php737), itself an independent reimplementation inspired by Joooook/12306-mcp
 (MIT, Copyright (c) 2025 Jok). No upstream source code is bundled or copied; the
 upstream is referenced for lineage only. Neither licence asserts 12306 endorsement
 or service terms. See `references/train-live.md`.
-Optional live flight/hotel candidates (飞猪 flyai) come from a **user-installed flyai
-CLI** with the user's own `FLYAI_API_KEY` (see `references/flyai.md`). The CLI is not
-bundled, not auto-installed and not accessed in CI; 飞猪/Fliggy 商标与服务条款归阿里
-巴巴集团所有，本仓库与飞猪无从属或授权关系，返回的参考价仅为"查询时参考价·单源"，
-不构成报价或库存承诺。无 CLI/无 key/体验模式/失败时完整回退深链。CLI 契约未实测
-（编写时环境中无 flyai CLI），首次使用前须以 `flyai --help` 与
-`scripts/flyai_provider.py doctor` 核对。
+Optional live flight/hotel candidates (飞猪 flyai) come from the **official Fliggy
+CLI** `@fly-ai/flyai-cli` (npm, MIT, published by the alibaba-flyai organization;
+see `references/flyai.md`). The CLI is user-installed (`npm i -g`), not bundled,
+not auto-installed and not accessed in CI; it works without a key in 体验模式
+(real prices, partially restricted). 飞猪/Fliggy 商标与服务条款归阿里巴巴集团所有，
+本仓库与飞猪无从属或授权关系，返回的参考价仅为"查询时参考价·单源"，
+不构成报价或库存承诺。无 CLI/失败时完整回退深链。CLI 契约已于 2026-11-25
+对照真实 `flyai --help` 与真机输出核验（v1.0.16）。

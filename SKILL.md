@@ -355,11 +355,13 @@ never stall silently or invent a script's output.
   直达席别票价/余票、直达无票时中转、按需经停;匿名公共端点(无 MCP/Node/Key/登录),
   传输层参考 php737/train-12306 1.2.0 (MIT,2026-11-14 核验);`live` 才可增量写 legs,
   超时/限流/畸形/未开售完整深链兜底(接入细节见 references/train-live.md)。
-- `scripts/flyai_provider.py` — **可选**飞猪 flyai CLI 只读适配器: 机票/酒店实时候选
-  (doctor / flights / hotels / merge 子命令,`--fixture` 离线样本)。无 CLI/无
-  `FLYAI_API_KEY`/体验模式/失败时完整回退 flight_scan 深链;仅 live 可增量写计划
-  (legs 增 flight_live,hotels 增 options[].flyai),遮蔽价只标 masked,口径不明不加总,
-  budget 不重复。CLI 契约未实测,先跑 `doctor`(`references/flyai.md` 有 schema/状态表)。
+- `scripts/flyai_provider.py` — **可选**飞猪官方 flyai CLI 只读适配器: 机票/酒店实时候选
+  (doctor / flights / hotels / merge 子命令,`--fixture` 离线样本)。CLI=`@fly-ai/flyai-cli`
+  (阿里飞猪官方组织维护,`npm i -g` 安装;**key 可选**,无 key 走体验模式——真实报价、
+  部分受限,适配器如实标 `experience_mode`;酒店价数字遮蔽时标 masked 绝不猜测)。
+  无 CLI/失败时完整回退 flight_scan 深链;仅 live 可增量写计划
+  (legs 增 flight_live,hotels 增 options[].flyai),budget 不重复。
+  契约 2026-11-25 真机实测(`references/flyai.md` 有 schema/状态表)。
 - `scripts/route_tools.py` — geocode stops(高德优先 `AMAP_KEY`/`--amap-key`,自动
   GCJ02→WGS84;百度回退 `BAIDU_MAP_AK`/`--baidu-ak`), distance-check clustering, emit
   per-hop map links and the trip KML; subcommands geocode / check (`--live` 用高德

@@ -2,25 +2,34 @@
   "tool": "flights",
   "sample_date": "2026-11-01",
   "result": {
-    "demoMode": true,
-    "systemMessage": "当前为体验模式，返回示例数据，非真实报价",
-    "offers": [
-      {
-        "flightNo": "DEMO001",
-        "airline": "体验航空",
-        "depAirport": "PVG",
-        "depTerminal": "T1",
-        "arrAirport": "KMG",
-        "arrTerminal": "T1",
-        "depDate": "2026-12-01",
-        "depTime": "08:00",
-        "arrDate": "2026-12-01",
-        "arrTime": "11:25",
-        "durationMinutes": 205,
-        "cabin": "economy",
-        "price": 100,
-        "detailUrl": "https://www.fliggy.com/flight/demo"
-      }
-    ]
+    "status": 0,
+    "message": "success",
+    "systemMessage": "*当前为体验模式，返回示例数据，非真实报价，请前往飞猪AI开放平台获取正式API Key。*",
+    "data": {
+      "itemList": [
+        {
+          "journeys": [
+            {
+              "journeyType": "直达",
+              "segments": [
+                {
+                  "depStationCode": "PVG", "depStationName": "浦东国际机场",
+                  "depTerm": "T1", "depDateTime": "2026-12-01 08:00:00",
+                  "arrStationCode": "KMG", "arrStationName": "长水机场",
+                  "arrTerm": "T1", "arrDateTime": "2026-12-01 11:25:00",
+                  "duration": "205", "marketingTransportName": "体验航空",
+                  "marketingTransportNo": "DEMO001", "seatClassName": "经济舱",
+                  "quantity": "9", "stopInfos": null
+                }
+              ],
+              "totalDuration": "205", "transferDuration": ""
+            }
+          ],
+          "ticketPrice": "100.00", "totalDuration": "205",
+          "jumpUrl": "https://www.fliggy.com/flight/demo",
+          "tags": null
+        }
+      ]
+    }
   }
 }

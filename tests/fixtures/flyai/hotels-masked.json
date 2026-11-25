@@ -2,24 +2,24 @@
   "tool": "hotels",
   "sample_date": "2026-11-01",
   "result": {
-    "demoMode": false,
+    "status": 0,
+    "message": "success",
     "systemMessage": "部分报价因平台规则暂不展示",
-    "offers": [
-      {
-        "hotelName": "乌镇西栅精品客栈",
-        "hotelId": "H1001",
-        "roomType": "标准大床房",
-        "priceMasked": true,
-        "priceBasis": "per-night-per-room",
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1001"
-      },
-      {
-        "hotelName": "乌镇通安客栈",
-        "hotelId": "H1002",
-        "roomType": "高级双床房",
-        "price": "****",
-        "detailUrl": "https://www.fliggy.com/hotel/detail?hotelId=H1002"
-      }
-    ]
+    "data": {
+      "itemList": [
+        {
+          "name": "乌镇西栅精品客栈", "shId": "H1001", "star": "舒适型",
+          "price": "¥1xxx", "rate": null,
+          "detailUrl": "https://router.feizhu.com/multi/webview?url=sample-h1001",
+          "mainPic": null
+        },
+        {
+          "name": "乌镇通安客栈", "shId": "H1002", "star": "高档型",
+          "price": "****", "rate": null,
+          "detailUrl": "https://router.feizhu.com/multi/webview?url=sample-h1002",
+          "mainPic": null
+        }
+      ]
+    }
   }
 }

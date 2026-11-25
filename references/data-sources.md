@@ -9,8 +9,8 @@ deep link marked "verify on click". Statuses marked ✓ were live-tested 2026-08
 > （`route_tools links`，默认 amap，境内坐标自动 WGS84→GCJ02 纠偏）；地理编码走高德
 > （`AMAP_KEY`）+ 百度回退（`BAIDU_MAP_AK`）；日照为本地 NOAA 天文计算（零网络）；
 > 机票价格经 `flight_scan.py` 深链由用户点开核对（OTA 无免钥公开 fare API，绝不猜价）；
-> 可选：配置飞猪 flyai CLI + `FLYAI_API_KEY` 后 `scripts/flyai_provider.py` 提供
-> 只读机票/酒店参考价，遮蔽/缺失价绝不猜测，失败完整回退深链；
+> 可选：安装飞猪官方 flyai CLI（`npm i -g @fly-ai/flyai-cli`，key 可选）后
+> `scripts/flyai_provider.py` 提供只读机票/酒店参考价，遮蔽/缺失价绝不猜测，失败完整回退深链；
 > 火车可选 `train_live.py` 直连公共端点查询，只有可靠 live 写实时价/余票，失败仍回深链人工核对；
 > 假日调休查国务院公告 + timor.tech；安全与天气预警查中央气象台/景区官方公告。
 
@@ -21,11 +21,12 @@ deep link marked "verify on click". Statuses marked ✓ were live-tested 2026-08
   **国内没有可用的免钥票价 API**（携程/去哪儿无公开 fare 接口，页面有 bot 墙），
   所以价格必须由用户打开链接核对；plan 中的价格字段照旧写 "—，点链接核对"，
   不要凭搜索结果猜测。
-- **【可选增强·flyai】** 配置飞猪 flyai CLI 与 `.env` 中的 `FLYAI_API_KEY` 后，
-  `python3 scripts/flyai_provider.py flights|hotels|doctor` 提供只读实时候选与
-  人民币参考价（标注"查询时参考价·单源"）。无 CLI/无 key/体验模式/失败时完整
-  回退深链；遮蔽或缺失价格只标 masked/unavailable。CLI 契约未实测，首次使用前
-  先跑 `doctor` 核对签名（安装、schema、状态表与 fixture 见 `references/flyai.md`）。
+- **【可选增强·flyai·2026-11-25 真机实测】** 安装飞猪官方 CLI（`npm i -g
+  @fly-ai/flyai-cli`，阿里飞猪组织维护）后，`python3 scripts/flyai_provider.py
+  flights|hotels|doctor` 提供只读实时候选与人民币参考价（标注"查询时参考价·单源"）。
+  **key 可选**：无 key 时 CLI 以体验模式运行（真实报价、部分受限，适配器如实标注
+  `experience_mode`；酒店价数字遮蔽时标 masked 绝不猜测）。无 CLI/失败时完整回退
+  深链（安装、真实 schema、状态表与 fixture 见 `references/flyai.md`）。
 - **价格核验规则**：每个航段至少 2 个来源（携程 + 去哪儿 / 航司官网 / Trip.com 任选二），
   `legs.note` 记录来源 + as-of；两源差 >10% 写区间。**Cheapest-by-price hides usable
   flights**：低价行常是红眼/次日到达，喂给 pinned 事件的航段人工核对到达时刻。

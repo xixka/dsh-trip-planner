@@ -2,41 +2,56 @@
   "tool": "flights",
   "sample_date": "2026-11-01",
   "result": {
-    "demoMode": false,
+    "status": 0,
+    "message": "success",
     "systemMessage": null,
-    "offers": [
-      {
-        "flightNo": "CZ3463",
-        "airline": "中国南方航空",
-        "depAirport": "URC",
-        "depTerminal": "T3",
-        "arrAirport": "CAN",
-        "arrTerminal": "T2",
-        "depDate": "2026-12-01",
-        "depTime": "21:40",
-        "arrDate": "2026-12-02",
-        "arrTime": "02:10",
-        "durationMinutes": 270,
-        "cabin": "economy",
-        "price": 1180,
-        "detailUrl": "https://www.fliggy.com/flight/detail?flightNo=CZ3463&date=2026-12-01"
-      },
-      {
-        "flightNo": "HU7145",
-        "airline": "海南航空",
-        "depAirport": "URC",
-        "depTerminal": "T2",
-        "arrAirport": "CAN",
-        "arrTerminal": "T1",
-        "depDate": "2026-12-01",
-        "depTime": "22:15",
-        "arrDate": "2026-12-02",
-        "arrTime": "03:05",
-        "durationMinutes": 290,
-        "cabin": "economy",
-        "price": 1320,
-        "detailUrl": "https://www.fliggy.com/flight/detail?flightNo=HU7145&date=2026-12-01"
-      }
-    ]
+    "data": {
+      "itemList": [
+        {
+          "journeys": [
+            {
+              "journeyType": "直达",
+              "segments": [
+                {
+                  "depStationCode": "URC", "depStationName": "地窝堡国际机场",
+                  "depTerm": "T3", "depDateTime": "2026-12-01 21:40:00",
+                  "arrStationCode": "CAN", "arrStationName": "白云国际机场",
+                  "arrTerm": "T2", "arrDateTime": "2026-12-02 02:10:00",
+                  "duration": "270", "marketingTransportName": "南航",
+                  "marketingTransportNo": "CZ3463", "seatClassName": "经济舱",
+                  "quantity": "9", "stopInfos": null
+                }
+              ],
+              "totalDuration": "270", "transferDuration": ""
+            }
+          ],
+          "ticketPrice": "1180.00", "totalDuration": "270",
+          "jumpUrl": "https://router.feizhu.com/multi/webview?url=sample-cz3463",
+          "tags": null
+        },
+        {
+          "journeys": [
+            {
+              "journeyType": "直达",
+              "segments": [
+                {
+                  "depStationCode": "URC", "depStationName": "地窝堡国际机场",
+                  "depTerm": "T2", "depDateTime": "2026-12-01 22:15:00",
+                  "arrStationCode": "CAN", "arrStationName": "白云国际机场",
+                  "arrTerm": "T1", "arrDateTime": "2026-12-02 03:05:00",
+                  "duration": "290", "marketingTransportName": "海南航空",
+                  "marketingTransportNo": "HU7145", "seatClassName": "经济舱",
+                  "quantity": "9", "stopInfos": null
+                }
+              ],
+              "totalDuration": "290", "transferDuration": ""
+            }
+          ],
+          "ticketPrice": "1320.00", "totalDuration": "290",
+          "jumpUrl": "https://router.feizhu.com/multi/webview?url=sample-hu7145",
+          "tags": null
+        }
+      ]
+    }
   }
 }
