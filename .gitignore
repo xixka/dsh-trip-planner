@@ -37,3 +37,6 @@ themes/**/*.png
 
 # npm pack output — a local `npm pack` artifact should never land in the repo
 *.tgz
+
+# Windy response cache (generated during live smoke tests)
+windycache.json
