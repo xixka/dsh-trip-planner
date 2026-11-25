@@ -1,60 +1,47 @@
-# 12306 实时铁路查询（可选增强）
+# 12306 实时铁路查询（可选增强·直连 HTTP）
 
 `scripts/train_live.py` 为 Phase 3 增加出行日直达、席别票价/余票、中转和按需经停查询。
-它是**可选**的本地 stdio MCP 适配器：未配置、依赖不可用、超时、限流或 schema 不符时，
-仍完整输出 `flight_scan.py` 的 12306 + 携程深链。旧计划、旧字段、估算、人工核验和旧渲染不依赖本能力。
+它是**可选**的零依赖增强：直连 12306 网页版自己在用的公共查询端点（匿名会话 Cookie +
+页面隐藏查询路径），**不需要 MCP、Node/npm、API Key、登录或任何凭据**。
+网络不通、超时、限流或返回畸形时，仍完整输出 `flight_scan.py` 的 12306 + 携程深链。
+旧计划、旧字段、估算、人工核验和旧渲染不依赖本能力。
 
-边界：不爬取搜索页，不使用浏览器/登录/Cookie 凭据/乘客信息，不下单，不自动订票；
+边界：不爬取搜索页，不使用浏览器/登录/乘客信息，不下单，不自动订票；
 不把 Key 放入命令行、日志、fixture、缓存或 HTML。本适配器不需要 Key，也不写查询缓存。
 携程链接只用于人工核对，**官方购票入口仅为 12306**。
 
-## 已核验的上游与安装范围
+## 数据来源与血统
 
-接入前于 2026-11-23 阅读了上游源码、`package.json`、README、工具 schema 和 LICENSE：
+传输层是对 **php737/train-12306**（MIT，Copyright (c) 2026 php737）端点处理的
+净室重写：该上游本身是受 Joooook/12306-mcp 启发的独立 Python 实现，本仓库没有复制
+任何上游源码。接入前核验记录（2026-11-25，GitHub API）：
 
 | 项 | 已核验值 |
 |---|---|
-| 仓库 | `Joooook/12306-mcp` |
-| 固定 commit | `ff6439da6f63d7d72181abea4568abd69878c600` |
-| package/version | `12306-mcp` / `0.3.10` |
-| 许可 | MIT，Copyright (c) 2025 Jok；安装目录保留原 `LICENSE` |
-| 传输 | 本地 stdio MCP（本适配器不使用上游 HTTP/SSE 服务） |
-| 直达 | `get-tickets(date, fromStation, toStation, …, format=json)` → `TicketInfo[]` |
-| 中转 | `get-interline-tickets(date, fromStation, toStation, …, format=json)` → `InterlineInfo[]` |
-| 经停 | `get-train-route-stations(trainCode, departDate, format=json)` → `RouteStationInfo[]` |
-| 车站辅助 | `get-station-code-by-names` / `get-stations-code-in-city` 等；同城站名与 telecode 不合并 |
+| 传输参考 | `php737/train-12306` 1.2.0（最后推送 2026-11-14，MIT） |
+| 直达端点 | `GET /otn/leftTicket/query*`（页面 `CLeftTicketUrl` 动态发现） |
+| 中转端点 | `GET /lcquery/query*`（页面 `lc_search_url` 动态发现，**无 `/otn/` 前缀**） |
+| 经停端点 | `GET /otn/queryTrainInfo/query`（需 `train_no`，经 search 接口解析） |
+| 车次搜索 | `GET search.12306.cn/search/v1/train/search`（车次号 → train_no） |
+| 车站表 | `station_name.js`（约 3000 站，缓存 7 天，站名/城市名/电报码互查） |
+| 凭据 | 无登录；仅 init 页返回的匿名会话 Cookie 与浏览器式 UA |
 
-上游数据来自 12306 公共查询端点；上游 README 标注“本项目仅用于学习”。MIT 是软件许可，
-**不代表 12306 官方授权、服务可用性承诺或数据质量保证**。使用者仍须遵守 12306 当前条款、
-预售期与公告；不得把第三方 MCP 当作官方 SLA。上游自身 Axios 请求没有超时，因此安装器应用
-一个可审计的 10 秒补丁，适配器另有限时、有限重试和子进程退出清理。
+上游数据来自 12306 公共查询端点；**MIT 是软件许可，不代表 12306 官方授权、服务可用性
+承诺或数据质量保证**。使用者仍须遵守 12306 当前条款、预售期与公告；不得把第三方实现
+当作官方 SLA。适配器每个 HTTP 请求有超时、有限重试和请求间隔。
 
-### 显式安装（不静默、不全局）
+### 开箱即用
 
-需要 Python 3.9+、Node.js 18+ 和 npm。查询脚本本身没有第三方 Python 依赖，也不会用 `npx -y`
-静默下载服务。只有用户主动运行以下安装器才会下载固定源码并在指定新目录执行本地 `npm ci`：
-
-```bash
-python3 scripts/train_live_install.py \
-  --prefix "$HOME/.local/share/dsh-trip-planner/12306-mcp"
-```
-
-安装器核验 commit 对应归档的 SHA-256、package/version 和 MIT 声明，使用上游 `package-lock.json`，
-应用 `scripts/train_live_patches/0001-axios-timeout.patch`，并写入
-`dsh-installation/INSTALLATION.json`（commit、归档摘要、补丁摘要、许可摘要和范围）及补丁副本。
-目标目录必须不存在；安装器拒绝覆盖，也不执行全局安装。升级必须重新核验版本、schema、条款、
-补丁和摘要，不能只换成浮动分支或最新 npm 包。
-
-配置时直接指向已安装文件，不要把任何凭据放进命令：
+查询脚本无第三方 Python 依赖（纯标准库 urllib），**没有安装步骤**：
 
 ```bash
 python3 scripts/train_live.py direct \
-  --from 北京南 --to 上海虹桥 --date 2026-12-01 \
-  --mcp-command 'node /absolute/path/12306-mcp/build/index.js'
+  --from 北京南 --to 上海虹桥 --date 2026-12-01
 ```
 
-也可用环境变量 `TRAIN_LIVE_MCP_COMMAND` 保存同一条**非秘密**启动命令。未配置时只返回
-`unavailable + mcp_not_configured + 深链`，不是 `no_service`。
+车站表与查询路径缓存在临时目录（可用 `TRAIN_LIVE_CACHE_DIR` 或 `--cache-dir` 覆盖，
+7 天有效）；12306 改版导致「重定向到登录页」报错时，删掉缓存目录即自动重新发现。
+`--verbose` 在 stderr 打印 HTTP 调试日志（不会进入 JSON 结果）。
 
 ## 查询流程
 
@@ -68,26 +55,28 @@ python3 scripts/train_live.py direct \
 
 - 日期与所有到发时间统一为 `Asia/Shanghai`（UTC+8）。输入应是**具体车站或电报码**；
   北京/北京南、南京/南京南等同城站不合并，返回中同时记录站名和 telecode。
-- 上游先按 `GDZTKOFS`、出发时段筛选，适配器再校验车次、日期、时间、车站、席别结构。
-  默认最多展示 3 个候选，并给 1 个 primary + 至多 1 个 backup；不为了凑备选保留无票行。
+  城市名（如 `北京`）会解析到代表站，结果里记录的是实际 boarding 站。
+- 适配器解析 12306 管道分隔行（57 字段）与 `yp_info_new` 定长票价块，并过滤
+  占位脏数据（`99:59`/`24:00` 历时、出发=到达等）；`24:xx` 深夜时刻按次日处理。
+- 默认最多展示 3 个候选，并给 1 个 primary + 至多 1 个 backup；不为了凑备选保留无票行。
 - 每条候选保留 `train_code`、到发站/日期/时间、历时、`seats[]`。席别记录名称、代码、
   `price_cny` 和 `{status, available, count, raw}`；缺字段或非数值票价保持 `null`。
 - `有/充足`、数字、`无/0`、`候补`分别归一化；`--`、空值和未知文本保持 `unknown`，
   不按无票处理。只有所有车次的所有已知席别都明确表示无票/候补时才汇总为 `sold_out`。
-- 每个 MCP 请求默认 20 秒超时，网络/超时默认重试 1 次（`--retries 0..2`）；限流不自动重试。
-  每次尝试启动独立本地进程，避免一个卡死查询影响后续直达/中转/经停。原始 stderr 不写入结果或日志。
+- 每个 HTTP 请求默认 15 秒超时，网络/超时默认重试 1 次（`--retries 0..2`）；限流
+  （HTTP 429）不自动重试。stderr 只用于调试日志，不写入结果。
 
 ### 预售期
 
 本地 guard 默认沿用项目已有的 15 天规划口径：`travel_date > 北京今天 + 14 天` 时直接返回
-`not_on_sale`，**不启动 MCP、不反复请求**，并给 `expected_check_date = 出行日 - 14 天`。
+`not_on_sale`，**不发起网络请求、不反复请求**，并给 `expected_check_date = 出行日 - 14 天`。
 这是预计关注日期，不是承诺的开售时间点；放票日期、时刻和预售期始终以 12306 公告为准。
 可用 `--presale-days N` 显式调整，`0` 禁用本地 guard。窗口内上游明确返回未开售时也标记
 `not_on_sale`，但不编造一个新的关注日期。
 
 ### 中转（默认仅直达无票）
 
-`--transfer auto` 只有在直达结果为 `sold_out` 时才调用 `get-interline-tickets`；
+`--transfer auto` 只有在直达结果为 `sold_out` 时才调用中转端点；
 `no_service`、空响应、超时、未开售、样本和未知余票都不会触发自动中转。用户明确要求时用
 `--transfer always`，`never` 完全禁用。可选 `--middle-station` 指定中转站。
 
@@ -106,23 +95,23 @@ python3 scripts/train_live.py direct \
 ### 经停（按需）
 
 ```bash
-python3 scripts/train_live.py route --train G3 --date 2026-12-01 \
-  --mcp-command 'node /absolute/path/12306-mcp/build/index.js'
+python3 scripts/train_live.py route --train G3 --date 2026-12-01
 ```
 
 也可在直达命令上加 `--route-train G3`。只有用户需要经停时才调用；经停失败放在独立 `route`
 子结果中，直达状态和计划合并不受影响。首末站 `--` 表示该方向无到/发时刻，输出为 `null`。
+经停需要内部 `train_no`：先经 search 接口按车次号+日期解析，查不到即 `no_service`。
 
 ## 状态、优先级与展示约束
 
 | 状态 | 含义 | 可写 `legs[]` |
 |---|---|---|
-| `live` | 本地 MCP 返回且通过 schema/时间校验的本次 12306 查询 | **仅此状态且有推荐候选时可写** |
+| `live` | 直连 HTTP 返回且通过 schema/时间校验的本次 12306 查询 | **仅此状态且有推荐候选时可写** |
 | `not_on_sale` | 超出配置预售期或上游明确未开售 | 否；给预计关注日期（可确定时） |
 | `sold_out` | 所有有效候选均有明确无票/候补证据 | 否；auto 可继续查一次中转 |
 | `no_service` | 成功响应为有效空列表或明确无匹配车次 | 否；**空响应不等于无票** |
 | `sample` | 显式 `--fixture` 的离线样本，必须展示 `sample_date` | 否；严禁冒充 live |
-| `unavailable` | 未配置、超时、网络、限流、空传输响应或 MCP 不可用 | 否；保留人工结果并给深链 |
+| `unavailable` | 超时、网络、限流、重定向到登录页或传输不可用 | 否；保留人工结果并给深链 |
 | `unverified` | 畸形/schema 不符、车站/日期错误或证据不足 | 否；保持未知 |
 
 数据优先级：`live > 注明日期的 sample > 深链人工核对 > unverified`。
@@ -150,15 +139,15 @@ python3 scripts/train_live.py merge --plan path/plan.geo.json \
 - 同一 managed 查询再次得到 live 时更新该 managed 行，避免重复追加。人工增加的其他键保留。
 - 样本、无票、无车次、未开售、超时、限流、空/畸形响应、未知状态均不写文件。
   原子写回只在成功合并后发生；读取/解析/合并失败保留原文件字节。
-- `rail_live` 保存来源、MCP 版本（服务端声明值）、适配器已核验 commit、`queried_at`、
-  `travel_date`、query、候选、主备、换乘/末段信息和深链。新字段会被旧渲染器自然忽略。
+- `rail_live` 保存来源（传输参考版本）、`queried_at`、`travel_date`、query、候选、主备、
+  换乘/末段信息和深链。新字段会被旧渲染器自然忽略。
 
 合并命令输出的 `plan_merge.written` 表示“内存中产生了可写变更”；只有同时指定 `--write`
 才写回文件。计划文件属于用户数据，不要把 live 响应、fixture 或个人计划提交到仓库。
 
 ## 离线 fixture 与 CI
 
-所有测试均不启动 MCP、不访问真实 12306，也不安装上游依赖：
+所有测试均不访问真实 12306：
 
 ```bash
 python3 -m unittest -v tests/test_train_live.py
@@ -183,6 +172,7 @@ python3 scripts/train_live.py direct --from 北京南 --to 上海虹桥 \
 
 ## 验证边界
 
-本次开发只下载并审阅了上游 GitHub 源码，**未安装上游 npm 依赖，未访问真实 12306，
-未做真机 live 验证**。因此提交中的真实服务可用性、上游条款变化、实际放票时间与票量均未实测；
-交付 Agent 必须在少量只读查询成功后再使用 live，任何未实测/失败项保持深链人工核验。
+传输层重写于 2026-11-25 完成并做了真机只读验证（北京南→上海虹桥直达、深拉萨中转、
+G1 经停）。12306 未见官方公开 API 承诺；查询路径、字段位置或条款变化都可能使 live 失效
+（表现为 `unavailable` + 深链兜底，不会污染计划）。交付 Agent 必须在少量只读查询成功后再
+使用 live，任何未实测/失败项保持深链人工核验。

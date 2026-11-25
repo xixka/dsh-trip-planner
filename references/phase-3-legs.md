@@ -44,7 +44,7 @@ empty section (they used to crash — the 云南 test lost both themed pages to 
 - **可选实时增强**：需要出行日直达、席别余票/票价、中转或经停时，先读
   `references/train-live.md`，再用 `scripts/train_live.py`。仅 schema 校验通过的 `live`
   可增量写入 `legs[].rail_live`；样本、无票、无车次、未开售、超时、限流和畸形响应均不覆盖
-  人工结果。未配置本地 stdio MCP 或查询失败时，完整沿用以下 12306/携程深链，不阻塞 Phase 3。
+  人工结果。查询失败或网络不可用时，完整沿用以下 12306/携程深链，不阻塞 Phase 3。
 - Mode rule: 高铁 wins under ~5 h station-to-station（市中心到市中心，无机场
   buffer——沪杭 45 分、京沪 4.5 h、京西 6 h 是步行距离以外的门槛）；fly beyond
   that or where rail does not reach（新疆/西藏/海南跨海）；夜间动卧只对省预算的

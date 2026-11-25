@@ -69,7 +69,7 @@ check("body has no frontmatter leak", !body.startsWith("---"));
 
 // 5. Resources resolve against the installed copy, not the source checkout.
 const resourceDir = entry.resourceBase?.path ?? "";
-for (const rel of ["SKILL.md", "references/data-sources.md", "references/train-live.md", "scripts/route_tools.py", "scripts/train_live.py", "scripts/train_live_install.py", "scripts/train_live_patches/0001-axios-timeout.patch", "themes/render_clay2.py"]) {
+for (const rel of ["SKILL.md", "references/data-sources.md", "references/train-live.md", "scripts/route_tools.py", "scripts/train_live.py", "themes/render_clay2.py"]) {
 	check(`resource present in installed copy: ${rel}`, existsSync(join(resourceDir, rel)));
 }
 

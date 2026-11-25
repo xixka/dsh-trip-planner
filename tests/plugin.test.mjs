@@ -65,8 +65,6 @@ const resources = [
 	"scripts/render_plan.py",
 	"scripts/flight_scan.py",
 	"scripts/train_live.py",
-	"scripts/train_live_install.py",
-	"scripts/train_live_patches/0001-axios-timeout.patch",
 	"themes/render_clay2.py",
 	"themes/render_theme2.py",
 	"themes/render_journal.py",

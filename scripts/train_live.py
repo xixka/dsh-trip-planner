@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Optional 12306 live rail queries through a local stdio MCP server.
+"""Optional 12306 live rail queries over the public web endpoints (direct HTTPS).
 
-No third-party Python packages, credentials, scraping, login, booking, or passenger
-information are used. Without --mcp-command (or TRAIN_LIVE_MCP_COMMAND), the
-result is ``unavailable`` plus the existing 12306/Ctrip deep links.
+No third-party Python packages, credentials, login, booking, or passenger
+information are used: the transport talks to the same anonymous public query
+endpoints the 12306 web app uses (session cookie + hidden query path only).
+When the network is unavailable, times out, or rate-limits, the result is
+``unavailable`` plus the existing 12306/Ctrip deep links.
+
+Transport lineage: a clean-room reimplementation of the endpoint handling in
+php737/train-12306 (MIT, verified 2026-11-14), which itself is an independent
+reimplementation inspired by Joooook/12306-mcp. No upstream source is copied.
 
 Examples:
   python3 scripts/train_live.py direct --from 北京南 --to 上海虹桥 --date 2026-12-01
-  python3 scripts/train_live.py direct --from 北京南 --to 上海虹桥 --date 2026-12-01 \
-      --mcp-command 'node /opt/12306-mcp/build/index.js' --transfer auto
-  python3 scripts/train_live.py route --train G1 --date 2026-12-01 \
-      --mcp-command 'node /opt/12306-mcp/build/index.js'
-  python3 scripts/train_live.py direct --from 北京南 --to 上海虹桥 --date 2026-12-01 \
+  python3 scripts/train_live.py direct --from 北京南 --to 上海虹桥 --date 2026-12-01 --transfer auto
+  python3 scripts/train_live.py route --train G1 --date 2026-12-01
+  python3 scripts/train_live.py direct --from 北京南 --to 上海虹桥 --date 2026-08-15 \
       --fixture tests/fixtures/train_live/direct-live.json
 
 Only a schema-valid ``live`` result can be merged into plan.legs[]. Fixtures are
@@ -23,23 +27,23 @@ import copy
 import json
 import math
 import os
-import queue
 import re
-import shlex
-import subprocess
+import ssl
 import sys
 import tempfile
-import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from flight_scan import rail_links
 
 SCHEMA_VERSION = 1
-UPSTREAM_REPOSITORY = "Joooook/12306-mcp"
-UPSTREAM_VERSION = "0.3.10"
-UPSTREAM_COMMIT = "ff6439da6f63d7d72181abea4568abd69878c600"
+UPSTREAM_REPOSITORY = "php737/train-12306"
+UPSTREAM_VERSION = "1.2.0"
+UPSTREAM_COMMIT = "2026-11-14"
 BEIJING_TZ = timezone(timedelta(hours=8), name="CST")
 TIMEZONE_NAME = "Asia/Shanghai"
 OFFICIAL_HOME = "https://www.12306.cn/index/"
@@ -52,11 +56,62 @@ STATUSES = {
 STATUS_PRIORITY = {"unverified": 0, "unavailable": 0, "deep_link": 1,
                    "not_on_sale": 1, "no_service": 1, "sold_out": 1,
                    "sample": 2, "live": 3}
-TOOL_ARGUMENTS = {
-    "get-tickets": ("date", "fromStation", "toStation", "format"),
-    "get-interline-tickets": ("date", "fromStation", "toStation", "format"),
-    "get-train-route-stations": ("trainCode", "departDate", "format"),
+
+API_BASE = "https://kyfw.12306.cn"
+WEB_URL = "https://www.12306.cn/index/"
+SEARCH_API_BASE = "https://search.12306.cn"
+LEFT_TICKET_INIT = API_BASE + "/otn/leftTicket/init"
+LCQUERY_INIT = API_BASE + "/otn/lcQuery/init"
+STATION_JS_FALLBACK = API_BASE + "/otn/resources/js/framework/station_name.js"
+TRAIN_ROUTE_PATH = "/otn/queryTrainInfo/query"
+# Hidden query paths must be discovered from the init pages; these fallbacks
+# were re-verified against the live site on 2026-11-25 (train-12306 1.2.0).
+FALLBACK_PATHS = {
+    "ticket_path": "/otn/leftTicket/queryG",
+    "transfer_path": "/lcquery/queryG",
 }
+# /otn/ prefix rules differ per endpoint; never "normalize" them into one form:
+# a /otn/ prefix on the transfer path redirects to the passport login page.
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+)
+BASE_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Referer": LEFT_TICKET_INIT,
+    "X-Requested-With": "XMLHttpRequest",
+}
+STATION_KEYS = ("station_id", "station_name", "station_code", "station_pinyin",
+                "station_short", "station_index", "code", "city", "r1", "r2")
+SEAT_TYPES = {
+    "9": ("商务座", "swz"), "P": ("特等座", "tz"), "M": ("一等座", "zy"),
+    "D": ("优选一等座", "zy"), "O": ("二等座", "ze"), "S": ("二等包座", "ze"),
+    "6": ("高级软卧", "gr"), "A": ("高级动卧", "gr"), "4": ("软卧", "rw"),
+    "I": ("一等卧", "rw"), "F": ("动卧", "rw"), "3": ("硬卧", "yw"),
+    "J": ("二等卧", "yw"), "2": ("软座", "rz"), "1": ("硬座", "yz"),
+    "W": ("无座", "wz"), "WZ": ("无座", "wz"), "H": ("其他", "qt"),
+}
+# yp_info_new fixed-width chunks: 10 chars per seat.
+PRICE_CHUNK_LEN = 10
+DISCOUNT_CHUNK_LEN = 5
+# Result-array positional fields (47+ pipe-separated columns; position-sensitive).
+TICKET_FIELD_INDEX = {
+    "train_no": 2, "station_train_code": 3, "from_station_telecode": 6,
+    "to_station_telecode": 7, "start_time": 8, "arrive_time": 9,
+    "lishi": 10, "canWebBuy": 11, "yp_info_new": 39, "dw_flag": 46,
+    "start_train_date": 13, "seat_discount_info": 54,
+}
+JUNK_LISHI = ("99:59", "24:00", "--:--")
+MAX_DURATION_MIN = 48 * 60
+STATION_CACHE_HOURS = 7 * 24
+PATHS_CACHE_HOURS = 7 * 24
+MISSING_STATIONS = [
+    {"station_id": "@cdd", "station_name": "成都东", "station_code": "WEI",
+     "station_pinyin": "chengdudong", "station_short": "cdd",
+     "station_index": "", "code": "1707", "city": "成都", "r1": "", "r2": ""},
+]
 
 
 class QueryError(Exception):
@@ -162,7 +217,7 @@ def base_result(kind, args, source_mode="live"):
         "status": "unverified",
         "source": {
             "name": "12306",
-            "transport": "local_stdio_mcp" if source_mode == "live" else "offline_fixture",
+            "transport": "direct_https" if source_mode == "live" else "offline_fixture",
             "server": UPSTREAM_REPOSITORY,
             "server_version": None,
             "adapter_verified_version": UPSTREAM_VERSION,
@@ -200,19 +255,517 @@ def error_result(result, error):
 
 
 def classify_text(text):
-    lower = text.lower()
+    lower = (text or "").lower()
     if any(x in lower for x in ("429", "rate limit", "too many requests", "限流", "频繁")):
-        return QueryError("rate_limited", "12306 or MCP rate limit", "unavailable")
+        return QueryError("rate_limited", "12306 rate limit", "unavailable")
     if any(x in text for x in ("暂未发售", "尚未开售", "预售期", "not_on_sale")):
         return QueryError("not_on_sale", "tickets are not on sale", "not_on_sale")
     if any(x in lower for x in ("timeout", "timed out")):
-        return QueryError("timeout", "MCP query timed out", "unavailable", True)
+        return QueryError("timeout", "query timed out", "unavailable", True)
     if any(x in text for x in ("Station not found", "未检索到城市", "未检索到车站")):
         return QueryError("station_not_found", "station was not resolved", "unverified")
     if text.startswith("Error:") or "parse tickets info failed" in text:
-        return QueryError("upstream_query", "MCP server could not query or parse 12306",
+        return QueryError("upstream_query", "12306 query could not be parsed",
                           "unavailable", True)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Direct HTTPS transport (no MCP, no subprocess, no third-party packages)
+# ---------------------------------------------------------------------------
+
+
+class Rail12306Http:
+    """Anonymous session against the public 12306 web endpoints.
+
+    Bootstrap visits the two init pages first (cookie + hidden query paths);
+    bare queries without an active session get 302'd or return empty.
+    """
+
+    def __init__(self, timeout=15.0, cache_dir=None, verbose=False):
+        self.timeout = timeout
+        self.verbose = verbose
+        self.cache_dir = Path(cache_dir) if cache_dir else self._default_cache_dir()
+        self.opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+        self.cookies = {}
+        self.paths = {}
+        self._stations = None
+
+    @staticmethod
+    def _default_cache_dir():
+        base = os.environ.get("TRAIN_LIVE_CACHE_DIR")
+        if base:
+            return Path(base)
+        return Path(tempfile.gettempdir()) / "dsh-trip-planner-12306"
+
+    def _log(self, message):
+        if self.verbose:
+            print("[12306] " + message, file=sys.stderr)
+
+    # ── low-level HTTP ──
+
+    def _request(self, url, params=None, headers=None, tries=3):
+        query = ("?" + urllib.parse.urlencode(params)) if params else ""
+        last = None
+        for attempt in range(tries):
+            merged = dict(BASE_HEADERS)
+            if self.cookies:
+                merged["Cookie"] = "; ".join(
+                    "{}={}".format(k, v) for k, v in self.cookies.items())
+            merged.update(headers or {})
+            request = urllib.request.Request(url + query, headers=merged)
+            try:
+                with self.opener.open(request, timeout=self.timeout) as response:
+                    for value in response.headers.get_all("Set-Cookie") or []:
+                        first = value.split(";")[0].strip()
+                        if "=" in first:
+                            name, _, val = first.partition("=")
+                            self.cookies[name.strip()] = val
+                    return response.read().decode("utf-8", errors="replace")
+            except urllib.error.HTTPError as error:
+                last = error
+                if error.code == 429:
+                    raise QueryError("rate_limited", "12306 rate limit", "unavailable")
+                self._log("HTTP {} on {} (attempt {}/{})".format(
+                    error.code, url, attempt + 1, tries))
+            except (urllib.error.URLError, TimeoutError, OSError) as error:
+                last = error
+                self._log("network error on {} (attempt {}/{}): {}".format(
+                    url, attempt + 1, tries, error.__class__.__name__))
+            if attempt + 1 < tries:
+                time.sleep(1.2 * (attempt + 1))
+        raise QueryError("network_error", "12306 request failed: {}".format(
+            last.__class__.__name__), "unavailable", True)
+
+    # ── bootstrap: cookie + hidden query paths ──
+
+    def bootstrap(self):
+        if self.paths:
+            return
+        cached = self._read_cache("paths.json", PATHS_CACHE_HOURS)
+        paths = dict(cached) if cached else {}
+        for url in (LEFT_TICKET_INIT, LCQUERY_INIT):
+            try:
+                self._request(url)
+            except QueryError as error:
+                raise QueryError("network_error",
+                                 "cannot reach 12306: " + error.error_class,
+                                 "unavailable", True)
+        if "ticket_path" not in paths:
+            html = self._request(LEFT_TICKET_INIT)
+            match = re.search(r"var CLeftTicketUrl = '(.+?)'", html)
+            paths["ticket_path"] = self._norm_ticket_path(
+                match.group(1) if match else None)
+        if "transfer_path" not in paths:
+            html = self._request(LCQUERY_INIT)
+            match = re.search(r"var lc_search_url = '(.+?)'", html)
+            paths["transfer_path"] = self._norm_transfer_path(
+                match.group(1) if match else None)
+        self.paths = paths
+        self._write_cache("paths.json", paths)
+        self._log("paths: " + json.dumps(paths))
+
+    @staticmethod
+    def _norm_ticket_path(value):
+        value = (value or "").strip()
+        if not value:
+            return FALLBACK_PATHS["ticket_path"]
+        if not value.startswith("/"):
+            value = "/" + value
+        if not value.startswith("/otn/"):
+            value = "/otn" + value
+        return value
+
+    @staticmethod
+    def _norm_transfer_path(value):
+        value = (value or "").strip()
+        if not value:
+            return FALLBACK_PATHS["transfer_path"]
+        return value if value.startswith("/") else "/" + value
+
+    # ── cache helpers ──
+
+    def _read_cache(self, name, ttl_hours):
+        path = self.cache_dir / name
+        try:
+            if time.time() - path.stat().st_mtime < ttl_hours * 3600:
+                return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+        return None
+
+    def _write_cache(self, name, value):
+        try:
+            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            (self.cache_dir / name).write_text(
+                json.dumps(value, ensure_ascii=False), encoding="utf-8")
+        except OSError:
+            pass
+
+    # ── station table ──
+
+    def stations(self):
+        if self._stations is not None:
+            return self._stations
+        cached = self._read_cache("stations.json", STATION_CACHE_HOURS)
+        if cached:
+            self._stations = cached
+            return self._stations
+        raw = None
+        try:
+            text = self._request(STATION_JS_FALLBACK)
+            if "station_names" in text:
+                raw = text
+        except QueryError as error:
+            self._log("station_name.js failed: " + error.error_class)
+        if raw is None:
+            html = self._request(WEB_URL, headers={"Referer": WEB_URL})
+            match = re.search(r"(/script/core/common/station_name.+?\.js)", html)
+            if not match:
+                raise QueryError("schema_mismatch",
+                                 "cannot locate station_name.js", "unverified")
+            raw = self._request(API_BASE + match.group(1))
+        table = parse_station_js(raw)
+        self._stations = table
+        self._write_cache("stations.json", table)
+        return table
+
+    def resolve_station(self, value):
+        """Chinese name / city name / telecode → telecode, or None."""
+        key = (value or "").strip()
+        if key.endswith("站"):
+            key = key[:-1]
+        table = self.stations()
+        if re.fullmatch(r"[A-Z]{2,4}", key) and key in table:
+            return key
+        for station in table.values():
+            if station.get("station_name") == key:
+                return station["station_code"]
+        for station in table.values():
+            if station.get("city") == key:
+                return station["station_code"]
+        return None
+
+    def station_name(self, telecode):
+        return self.stations().get(telecode, {}).get("station_name", telecode)
+
+    # ── query endpoints ──
+
+    def query_json(self, url, params):
+        text = self._request(url, params=params)
+        if text.lstrip().startswith("<"):
+            raise QueryError("redirected_to_login",
+                             "12306 returned HTML; query path may have changed",
+                             "unavailable", True)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            raise QueryError("malformed_response", "12306 returned invalid JSON",
+                             "unverified")
+
+
+def parse_station_js(raw):
+    body = raw.replace("var station_names ='", "").replace("';", "").strip()
+    flat = body.split("|")
+    table = {}
+    for index in range(len(flat) // 10):
+        group = flat[index * 10: index * 10 + 10]
+        station = dict(zip(STATION_KEYS, group))
+        if station.get("station_code"):
+            table[station["station_code"]] = station
+    for station in MISSING_STATIONS:
+        table.setdefault(station["station_code"], station)
+    return table
+
+
+def rail_client(args):
+    return Rail12306Http(timeout=args.timeout, cache_dir=args.cache_dir,
+                         verbose=args.verbose)
+
+
+def http_get_with_retry(tool_call, args):
+    """Unified retry wrapper; mirrors the old call_mcp retry semantics."""
+    last_error = None
+    for attempt in range(args.retries + 1):
+        try:
+            return tool_call(), attempt + 1
+        except QueryError as error:
+            last_error = error
+            if not error.retryable or attempt >= args.retries:
+                raise
+    raise last_error
+
+
+def fetch_direct(args):
+    client = rail_client(args)
+    client.bootstrap()
+    origin = client.resolve_station(args.orig)
+    destination = client.resolve_station(args.dest)
+    if not origin or not destination:
+        raise QueryError("station_not_found",
+                         "station was not resolved: {}→{} {}".format(
+                             args.orig, origin, args.dest, destination),
+                         "unverified")
+    data = client.query_json(API_BASE + client.paths["ticket_path"], {
+        "leftTicketDTO.train_date": args.travel_date,
+        "leftTicketDTO.from_station": origin,
+        "leftTicketDTO.to_station": destination,
+        "purpose_codes": "ADULT",
+    })
+    if not data.get("status"):
+        messages = data.get("messages")
+        raise classify_text(json.dumps(messages, ensure_ascii=False)) or QueryError(
+            "upstream_query", "12306 rejected the query", "unavailable", True)
+    rows = (data.get("data") or {}).get("result") or []
+    return [parse_ticket_row(row, client) for row in rows]
+
+
+def fetch_transfer(args):
+    client = rail_client(args)
+    client.bootstrap()
+    origin = client.resolve_station(args.orig)
+    destination = client.resolve_station(args.dest)
+    middle = client.resolve_station(args.middle_station) if args.middle_station else ""
+    if not origin or not destination or (args.middle_station and not middle):
+        raise QueryError("station_not_found", "station was not resolved", "unverified")
+    params = {
+        "train_date": args.travel_date,
+        "from_station_telecode": origin,
+        "to_station_telecode": destination,
+        "middle_station": middle or "",
+        "result_index": "0",
+        "can_query": "Y",
+        "isShowWZ": "Y",
+        "purpose_codes": "00",
+        "channel": "E",
+    }
+    plans = []
+    for _ in range(10):
+        data = client.query_json(API_BASE + client.paths["transfer_path"], params)
+        payload = data.get("data")
+        if isinstance(payload, str):
+            text = json.dumps(data, ensure_ascii=False)
+            raise classify_text(text) or QueryError(
+                "upstream_query", "12306 transfer query rejected", "unavailable", True)
+        plans += payload.get("middleList") or []
+        if payload.get("can_query") == "N":
+            break
+        params["result_index"] = str(payload.get("result_index", 0))
+    return plans
+
+
+def fetch_route(args):
+    client = rail_client(args)
+    client.bootstrap()
+    train_no = resolve_train_no(client, args.train, args.travel_date)
+    data = client.query_json(API_BASE + TRAIN_ROUTE_PATH, {
+        "leftTicketDTO.train_no": train_no,
+        "leftTicketDTO.train_date": args.travel_date,
+        "rand_code": "",
+    })
+    return (data.get("data") or {}).get("data") or []
+
+
+def resolve_train_no(client, train_code, travel_date):
+    """Display train code → internal train_no via the search endpoint."""
+    search = client.query_json(SEARCH_API_BASE + "/search/v1/train/search", {
+        "keyword": train_code, "date": travel_date.replace("-", "")})
+    rows = search.get("data") or []
+    for row in rows:
+        if isinstance(row, dict) and (row.get("station_train_code") or "").upper() == train_code:
+            return row["train_no"]
+    raise QueryError("no_service", "train code was not found on that date",
+                     "no_service")
+
+
+def parse_ticket_row(raw, client):
+    """Pipe-separated 12306 result row → adapter ticket dict (raises on junk)."""
+    values = raw.split("|")
+    fields = {key: values[index] if index < len(values) else ""
+              for key, index in TICKET_FIELD_INDEX.items()}
+    if fields["lishi"] in JUNK_LISHI:
+        raise ValueError("placeholder junk row")
+    if fields["start_time"] == fields["arrive_time"]:
+        raise ValueError("placeholder junk row")
+    try:
+        hours, minutes = (int(x) for x in fields["lishi"].split(":"))
+        if hours * 60 + minutes > MAX_DURATION_MIN:
+            raise ValueError("implausible duration")
+    except ValueError:
+        raise ValueError("malformed duration")
+    base = datetime.strptime(fields["start_train_date"], "%Y%m%d")
+    departure_clock = datetime.strptime(fields["start_time"], "%H:%M")
+    if departure_clock.hour >= 24:
+        base += timedelta(days=departure_clock.hour // 24)
+        departure_clock = departure_clock.replace(
+            hour=departure_clock.hour % 24)
+    departure = base.replace(hour=departure_clock.hour,
+                             minute=departure_clock.minute, tzinfo=BEIJING_TZ)
+    arrival = departure + timedelta(hours=hours, minutes=minutes)
+    start_date = departure.strftime("%Y-%m-%d")
+    start_time = departure.strftime("%H:%M")
+    arrive_date = arrival.strftime("%Y-%m-%d")
+    arrive_time = fields["arrive_time"]
+    return {
+        "start_train_code": fields["station_train_code"],
+        "start_date": start_date,
+        "start_time": start_time,
+        "arrive_date": arrive_date,
+        "arrive_time": arrive_time,
+        "lishi": fields["lishi"],
+        "from_station": client.station_name(fields["from_station_telecode"]),
+        "to_station": client.station_name(fields["to_station_telecode"]),
+        "from_station_telecode": fields["from_station_telecode"],
+        "to_station_telecode": fields["to_station_telecode"],
+        "prices": extract_prices(fields["yp_info_new"],
+                                 fields["seat_discount_info"]),
+        "dw_flag": fields["dw_flag"],
+    }
+
+
+def parse_transfer_plan(raw, client):
+    """12306 middleList entry → two MCP-shaped ticket dicts (adapter format)."""
+    legs = raw.get("fullList") or []
+    if len(legs) != 2:
+        raise ValueError("transfer plan must have exactly two legs")
+    tickets = []
+    for leg in legs:
+        start_date = ""
+        try:
+            base = datetime.strptime(leg.get("start_train_date", ""), "%Y%m%d")
+            clock = datetime.strptime(leg.get("start_time", ""), "%H:%M")
+            if clock.hour >= 24:
+                base += timedelta(days=clock.hour // 24)
+                clock = clock.replace(hour=clock.hour % 24)
+            start_date = base.strftime("%Y-%m-%d")
+            hours, minutes = (int(x) for x in (leg.get("lishi") or "0:0").split(":"))
+            arrival = base.replace(hour=clock.hour, minute=clock.minute) + \
+                timedelta(hours=hours, minutes=minutes)
+            arrive_date = arrival.strftime("%Y-%m-%d")
+        except (ValueError, KeyError):
+            raise ValueError("transfer leg has malformed dates")
+        tickets.append({
+            "start_train_code": leg.get("station_train_code", ""),
+            "start_date": start_date,
+            "start_time": leg.get("start_time", ""),
+            "arrive_date": arrive_date,
+            "arrive_time": leg.get("arrive_time", ""),
+            "lishi": leg.get("lishi", ""),
+            "from_station": leg.get("from_station_name", ""),
+            "to_station": leg.get("to_station_name", ""),
+            "from_station_telecode": leg.get("from_station_telecode", ""),
+            "to_station_telecode": leg.get("to_station_telecode", ""),
+            "prices": extract_prices(leg.get("yp_info"),
+                                     leg.get("seat_discount_info")),
+            "dw_flag": leg.get("dw_flag", ""),
+        })
+    return {
+        "ticketList": tickets,
+        "same_station": raw.get("same_station") == "0",
+        "wait_time": raw.get("wait_time", ""),
+        "middle_station": raw.get("middle_station_name", ""),
+    }
+
+
+def extract_prices(yp_info, seat_discount_info):
+    """yp_info_new fixed-width chunks → MCP-shaped price list."""
+    discounts = {}
+    text = seat_discount_info or ""
+    for index in range(len(text) // DISCOUNT_CHUNK_LEN):
+        chunk = text[index * DISCOUNT_CHUNK_LEN:(index + 1) * DISCOUNT_CHUNK_LEN]
+        try:
+            discounts[chunk[0]] = int(chunk[1:])
+        except ValueError:
+            pass
+    prices = []
+    text = yp_info or ""
+    for index in range(len(text) // PRICE_CHUNK_LEN):
+        chunk = text[index * PRICE_CHUNK_LEN:(index + 1) * PRICE_CHUNK_LEN]
+        try:
+            total = int(chunk[6:10])
+        except ValueError:
+            continue
+        if total >= 3000:
+            code = "W"
+        elif chunk[0] not in SEAT_TYPES:
+            code = "H"
+        else:
+            code = chunk[0]
+        name, short = SEAT_TYPES.get(code, ("其他", "qt"))
+        try:
+            price = int(chunk[1:6]) / 10
+        except ValueError:
+            continue
+        num = extract_seat_num(short, chunk)
+        prices.append({"seat_name": name, "short": short,
+                       "num": num, "price": price, "discount": discounts.get(code)})
+    return prices
+
+
+def extract_seat_num(short, chunk):
+    """Seat count uses the raw string so 有/无/候补 survive normalization."""
+    return chunk[6:10].lstrip("0") or "0"
+
+
+def load_fixture(path, expected_tool):
+    try:
+        envelope = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise QueryError("fixture_invalid", "offline fixture cannot be read", "unverified")
+    if not isinstance(envelope, dict) or envelope.get("tool") != expected_tool:
+        raise QueryError("fixture_invalid", "offline fixture tool does not match", "unverified")
+    if "error" in envelope:
+        raw = envelope["error"]
+        if not isinstance(raw, dict):
+            raise QueryError("fixture_invalid", "offline fixture error is malformed", "unverified")
+        error_class = raw.get("class", "upstream_query")
+        status = raw.get("status", "unavailable")
+        if status not in STATUSES or status in ("live", "sample"):
+            status = "unavailable"
+        raise QueryError(error_class, "offline fixture simulated " + error_class,
+                         status, bool(raw.get("retryable")))
+    sample_date = envelope.get("sample_date")
+    try:
+        parse_iso_date(sample_date)
+    except QueryError:
+        raise QueryError("fixture_invalid", "sample fixture requires sample_date", "unverified")
+    return envelope.get("result"), sample_date
+
+
+def dumps_rows(rows):
+    """Serialize ticket rows as the JSON text a fixture payload would carry."""
+    return json.dumps(rows, ensure_ascii=False)
+
+
+def execute_tool(tool, args):
+    """Returns (ticket_rows, transport_metadata, attempts, sample_date).
+
+    With --fixture, rows come straight from the stored fixture payload.
+    Live mode maps the HTTP payloads into the same row shape so every
+    downstream normalizer keeps working unchanged.
+    """
+    if args.fixture:
+        payload, sample_date = load_fixture(args.fixture, tool)
+        return payload, None, 0, sample_date
+    if tool == "get-tickets":
+        rows, attempts = http_get_with_retry(lambda: fetch_direct(args), args)
+    elif tool == "get-interline-tickets":
+        plans, attempts = http_get_with_retry(lambda: fetch_transfer(args), args)
+        client = rail_client(args)
+        rows = []
+        for plan in plans:
+            try:
+                rows.append(parse_transfer_plan(plan, client))
+            except (ValueError, KeyError, TypeError):
+                continue
+    elif tool == "get-train-route-stations":
+        rows, attempts = http_get_with_retry(lambda: fetch_route(args), args)
+    else:
+        raise QueryError("tool_missing", "unknown tool", "unverified")
+    payload = {"content": [{"type": "text", "text": dumps_rows(rows)}]}
+    info = {"name": UPSTREAM_REPOSITORY, "version": UPSTREAM_VERSION}
+    return payload, info, attempts, None
 
 
 def mcp_text(payload):
@@ -382,6 +935,8 @@ def normalize_direct(payload, args):
         result["status"] = "unverified" if malformed else "no_service"
         result["reason"] = "all_rows_malformed" if malformed else "no_rows_match_filters"
         result["malformed_rows"] = malformed
+        if malformed:
+            result["warnings"] = ["{} malformed row(s) isolated".format(malformed)]
         return result
     # sold_out requires affirmative unavailable evidence for every seat on every train.
     if all(c["availability"] == "sold_out" for c in candidates):
@@ -499,238 +1054,23 @@ def normalize_route(payload, args):
             raise QueryError("schema_mismatch", "route station is malformed", "unverified")
         for field in ("arrive_time", "start_time"):
             value = raw.get(field)
-            if not isinstance(value, str) or (value not in ("", "--") and
+            # Live data uses "----" (and "--") for the no-show direction on
+            # first/last stops; fixtures historically use "" / "--".
+            if not isinstance(value, str) or (value not in ("", "--", "----") and
                                                not re.fullmatch(r"\d{2}:\d{2}", value)):
                 raise QueryError("schema_mismatch", "route time is malformed", "unverified")
         stops.append({
             "sequence": index,
             "station_name": raw["station_name"],
             "train_code": raw.get("station_train_code") or args.train,
-            "arrive_time": raw.get("arrive_time") if raw.get("arrive_time") not in ("", "--") else None,
-            "start_time": raw.get("start_time") if raw.get("start_time") not in ("", "--") else None,
+            "arrive_time": raw.get("arrive_time") if raw.get("arrive_time") not in ("", "--", "----") else None,
+            "start_time": raw.get("start_time") if raw.get("start_time") not in ("", "--", "----") else None,
             "arrive_day": raw.get("arrive_day_str") or None,
-            "elapsed": raw.get("lishi") or None,
+            "elapsed": raw.get("running_time") or raw.get("lishi") or None,
         })
     result["status"] = "live"
     result["stops"] = stops
     return result
-
-
-class MCPClient:
-    """Small JSON-RPC 2.0 stdio client with per-request deadlines."""
-
-    def __init__(self, command, timeout):
-        self.command = command
-        self.timeout = timeout
-        self.process = None
-        self.messages = queue.Queue()
-        self.stderr_lines = []
-        self.next_id = 1
-        self.server_info = {}
-
-    def __enter__(self):
-        try:
-            self.process = subprocess.Popen(
-                self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
-                bufsize=1, shell=False,
-            )
-        except (OSError, ValueError):
-            raise QueryError("mcp_start_failed", "local MCP server could not start",
-                             "unavailable", True)
-        threading.Thread(target=self._read_stdout, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
-        try:
-            initialized = self.request("initialize", {
-                "protocolVersion": "2024-11-05", "capabilities": {},
-                "clientInfo": {"name": "dsh-trip-planner-train-live", "version": "1"},
-            })
-            server_info = initialized.get("serverInfo", {})
-            self.server_info = server_info if isinstance(server_info, dict) else {}
-            self.notify("notifications/initialized", {})
-        except QueryError:
-            self.close()
-            raise
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        self.close()
-
-    def _read_stdout(self):
-        try:
-            for line in self.process.stdout:
-                try:
-                    self.messages.put(json.loads(line))
-                except json.JSONDecodeError:
-                    self.messages.put({"_invalid": True})
-        finally:
-            self.messages.put({"_eof": True})
-
-    def _read_stderr(self):
-        # Drain to prevent deadlock; never print or persist upstream stderr.
-        for line in self.process.stderr:
-            if len(self.stderr_lines) < 20:
-                self.stderr_lines.append(line[:500])
-
-    def _send(self, payload):
-        if not self.process or self.process.poll() is not None:
-            raise QueryError("mcp_closed", "local MCP server exited", "unavailable", True)
-        try:
-            self.process.stdin.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            self.process.stdin.flush()
-        except (BrokenPipeError, OSError):
-            raise QueryError("mcp_closed", "local MCP server pipe closed", "unavailable", True)
-
-    def notify(self, method, params):
-        self._send({"jsonrpc": "2.0", "method": method, "params": params})
-
-    def request(self, method, params):
-        request_id = self.next_id
-        self.next_id += 1
-        self._send({"jsonrpc": "2.0", "id": request_id, "method": method, "params": params})
-        deadline = time.monotonic() + self.timeout
-        try:
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise queue.Empty
-                message = self.messages.get(timeout=remaining)
-                if message.get("_eof"):
-                    raise QueryError("mcp_closed", "local MCP server closed stdout",
-                                     "unavailable", True)
-                if message.get("_invalid"):
-                    raise QueryError("malformed_response", "MCP emitted invalid JSON", "unverified")
-                if message.get("id") != request_id:
-                    continue
-                if "error" in message:
-                    text = str(message["error"].get("message", "")) if isinstance(message["error"], dict) else ""
-                    raise classify_text(text) or QueryError(
-                        "mcp_rpc_error", "MCP JSON-RPC returned an error", "unavailable", True)
-                payload = message.get("result")
-                if not isinstance(payload, dict):
-                    raise QueryError("malformed_response", "MCP result is missing", "unverified")
-                return payload
-        except queue.Empty:
-            raise QueryError("timeout", "MCP query exceeded {:.1f}s".format(self.timeout),
-                             "unavailable", True)
-
-    def check_tool(self, name):
-        listed = self.request("tools/list", {})
-        tools = listed.get("tools")
-        if not isinstance(tools, list):
-            raise QueryError("schema_mismatch", "MCP tools/list is malformed", "unverified")
-        tool = next((t for t in tools if isinstance(t, dict) and t.get("name") == name), None)
-        if not tool:
-            raise QueryError("tool_missing", "required MCP tool is unavailable", "unverified")
-        schema = tool.get("inputSchema", {})
-        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
-        if any(field not in properties for field in TOOL_ARGUMENTS[name]):
-            raise QueryError("schema_mismatch", "MCP tool schema does not match the adapter", "unverified")
-
-    def call(self, name, arguments):
-        self.check_tool(name)
-        return self.request("tools/call", {"name": name, "arguments": arguments})
-
-    def close(self):
-        if not self.process:
-            return
-        try:
-            if self.process.stdin:
-                self.process.stdin.close()
-        except OSError:
-            pass
-        if self.process.poll() is None:
-            self.process.terminate()
-            try:
-                self.process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=2)
-        for stream in (self.process.stdout, self.process.stderr):
-            try:
-                if stream:
-                    stream.close()
-            except OSError:
-                pass
-
-
-def parse_command(value):
-    if not value:
-        raise QueryError("mcp_not_configured",
-                         "set --mcp-command or TRAIN_LIVE_MCP_COMMAND; deep links remain available",
-                         "unavailable")
-    try:
-        command = shlex.split(value, posix=os.name != "nt")
-    except ValueError:
-        raise QueryError("mcp_not_configured", "MCP command cannot be parsed", "unavailable")
-    if not command:
-        raise QueryError("mcp_not_configured", "MCP command is empty", "unavailable")
-    return command
-
-
-def call_mcp(tool, arguments, args):
-    payload = None
-    last_error = None
-    for attempt in range(args.retries + 1):
-        try:
-            with MCPClient(parse_command(args.mcp_command), args.timeout) as client:
-                payload = client.call(tool, arguments)
-                return payload, dict(client.server_info), attempt + 1
-        except QueryError as error:
-            last_error = error
-            if not error.retryable or attempt >= args.retries:
-                raise
-    raise last_error
-
-
-def load_fixture(path, expected_tool):
-    try:
-        envelope = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        raise QueryError("fixture_invalid", "offline fixture cannot be read", "unverified")
-    if not isinstance(envelope, dict) or envelope.get("tool") != expected_tool:
-        raise QueryError("fixture_invalid", "offline fixture tool does not match", "unverified")
-    if "error" in envelope:
-        raw = envelope["error"]
-        if not isinstance(raw, dict):
-            raise QueryError("fixture_invalid", "offline fixture error is malformed", "unverified")
-        error_class = raw.get("class", "upstream_query")
-        status = raw.get("status", "unavailable")
-        if status not in STATUSES or status in ("live", "sample"):
-            status = "unavailable"
-        raise QueryError(error_class, "offline fixture simulated " + error_class,
-                         status, bool(raw.get("retryable")))
-    sample_date = envelope.get("sample_date")
-    try:
-        parse_iso_date(sample_date)
-    except QueryError:
-        raise QueryError("fixture_invalid", "sample fixture requires sample_date", "unverified")
-    return envelope.get("result"), sample_date
-
-
-def tool_arguments(tool, args):
-    if tool == "get-train-route-stations":
-        return {"trainCode": args.train, "departDate": args.travel_date, "format": "json"}
-    value = {
-        "date": args.travel_date, "fromStation": args.orig, "toStation": args.dest,
-        "format": "json", "trainFilterFlags": args.train_flags,
-        "earliestStartTime": args.earliest, "latestStartTime": args.latest,
-        "sortFlag": "startTime", "sortReverse": False,
-    }
-    if tool == "get-tickets":
-        value["limitedNum"] = max(10, args.limit)
-    else:
-        value.update({"middleStation": args.middle_station, "showWZ": False,
-                      "limitedNum": 10})
-    return value
-
-
-def execute_tool(tool, args):
-    if args.fixture:
-        payload, sample_date = load_fixture(args.fixture, tool)
-        return payload, None, 0, sample_date
-    payload, server_info, attempts = call_mcp(tool, tool_arguments(tool, args), args)
-    return payload, server_info, attempts, None
 
 
 def finalize_live_metadata(result, server_info, attempts):
@@ -1060,12 +1400,13 @@ def response_to_text(result):
 def add_common_arguments(parser, rail=True):
     parser.add_argument("--date", dest="travel_date", required=True, type=argparse_date,
                         help="YYYY-MM-DD，北京时间")
-    parser.add_argument("--mcp-command", default=os.environ.get("TRAIN_LIVE_MCP_COMMAND"),
-                        help="本地 stdio MCP 启动命令；不默认使用 npx 联网安装")
-    parser.add_argument("--timeout", type=float, default=20.0, help="每个 MCP 请求超时秒数")
+    parser.add_argument("--timeout", type=float, default=15.0, help="每个 HTTP 请求超时秒数")
     parser.add_argument("--retries", type=int, default=1, choices=range(0, 3), help="网络/超时有限重试")
-    parser.add_argument("--fixture", help="显式离线 MCP fixture；有效数据强制标为 sample")
+    parser.add_argument("--fixture", help="显式离线 fixture；有效数据强制标为 sample")
     parser.add_argument("--output", choices=("json", "text"), default="json")
+    parser.add_argument("--verbose", action="store_true", help="stderr 输出 HTTP 调试日志")
+    parser.add_argument("--cache-dir", dest="cache_dir", default=None,
+                        help="车站表/查询路径缓存目录（默认临时目录，可用 TRAIN_LIVE_CACHE_DIR 覆盖）")
     if rail:
         parser.add_argument("--from", dest="orig", required=True, type=argparse_station,
                             help="具体出发站或电报码，不合并同城车站")

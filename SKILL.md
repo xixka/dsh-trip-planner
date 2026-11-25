@@ -351,10 +351,10 @@ never stall silently or invent a script's output.
   本地时区日落块,stations 风速双单位,forecast 的 meta 报告实际步长
   (全球模型 3 h,`--step 1` 不会变出逐时数据),windycache.json 缓存,
   `WINDY_BASE` 可换反代前缀;exit 3 = 该源无数据,静默降级回 Open-Meteo 主链。
-- `scripts/train_live.py` — 可选 12306 本地 stdio MCP 适配器(零第三方 Python 依赖):
-  直达席别票价/余票、直达无票时中转、按需经停；`live` 才可增量写 legs，完整深链兜底。
-  `scripts/train_live_install.py` 是独立显式安装器，固定 commit + npm lock + 审计补丁，
-  不全局或静默安装(`--help` 先行；接入细节见 references/train-live.md)。
+- `scripts/train_live.py` — 可选 12306 直连实时查询(零依赖零安装,纯标准库 urllib):
+  直达席别票价/余票、直达无票时中转、按需经停;匿名公共端点(无 MCP/Node/Key/登录),
+  传输层参考 php737/train-12306 1.2.0 (MIT,2026-11-14 核验);`live` 才可增量写 legs,
+  超时/限流/畸形/未开售完整深链兜底(接入细节见 references/train-live.md)。
 - `scripts/flyai_provider.py` — **可选**飞猪 flyai CLI 只读适配器: 机票/酒店实时候选
   (doctor / flights / hotels / merge 子命令,`--fixture` 离线样本)。无 CLI/无
   `FLYAI_API_KEY`/体验模式/失败时完整回退 flight_scan 深链;仅 live 可增量写计划

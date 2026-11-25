@@ -22,12 +22,14 @@ scripts and printed on the rendered pages where required. See
 `references/data-sources.md`.（原 Nominatim / sunrise-sunset.org / Nager.Date /
 frankfurter.dev / Google Flights 等境外数据源已整体移除。）
 
-Optional `scripts/train_live.py` can start a user-installed `Joooook/12306-mcp` server;
-the upstream source and dependencies are **not bundled**. The installer pins commit
-`ff6439da6f63d7d72181abea4568abd69878c600` (`12306-mcp` 0.3.10), preserves its MIT
-license (Copyright (c) 2025 Jok), applies only the recorded Axios-timeout patch, and
-writes license/patch hashes into the local installation record. This licence does not
-assert 12306 endorsement or service terms. See `references/train-live.md`.
+Optional `scripts/train_live.py` queries the 12306 public web endpoints directly over
+HTTPS (anonymous session cookie only; no login, no MCP, no bundled dependencies).
+Its transport layer is a clean-room reimplementation of the endpoint handling in
+[php737/train-12306](https://github.com/php737/train-12306) (MIT, Copyright (c) 2026
+php737), itself an independent reimplementation inspired by Joooook/12306-mcp
+(MIT, Copyright (c) 2025 Jok). No upstream source code is bundled or copied; the
+upstream is referenced for lineage only. Neither licence asserts 12306 endorsement
+or service terms. See `references/train-live.md`.
 Optional live flight/hotel candidates (飞猪 flyai) come from a **user-installed flyai
 CLI** with the user's own `FLYAI_API_KEY` (see `references/flyai.md`). The CLI is not
 bundled, not auto-installed and not accessed in CI; 飞猪/Fliggy 商标与服务条款归阿里

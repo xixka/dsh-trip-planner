@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline tests for scripts/train_live.py; never starts MCP or accesses 12306."""
+"""Offline tests for scripts/train_live.py; never accesses the real 12306."""
 
 import contextlib
 import copy
@@ -16,7 +16,6 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import train_live  # noqa: E402
-import train_live_install  # noqa: E402
 
 FIXTURES = ROOT / "tests" / "fixtures" / "train_live"
 
@@ -59,6 +58,9 @@ def args_for(**overrides):
     fixture_name = overrides.pop("fixture_name", None)
     if fixture_name:
         argv += ["--fixture", str(FIXTURES / fixture_name)]
+    # The MCP transport is gone; tests pass mcp_command="node unused" to mean
+    # "live mode, network mocked" — drop the key instead of passing a flag.
+    overrides.pop("mcp_command", None)
     for key, value in overrides.items():
         option = "--" + key.replace("_", "-")
         if isinstance(value, bool):
@@ -176,10 +178,14 @@ class DirectStatusTests(unittest.TestCase):
 
     def test_missing_mcp_keeps_complete_deep_link_fallback(self):
         travel = datetime.now(train_live.BEIJING_TZ).date() + timedelta(days=1)
-        args = args_for(travel_date=travel.isoformat(), mcp_command=None)
-        result = train_live.run_direct(args)
+        args = args_for(travel_date=travel.isoformat())
+        with mock.patch.object(
+                train_live.Rail12306Http, "bootstrap",
+                side_effect=train_live.QueryError(
+                    "network_error", "12306 unreachable", "unavailable", False)):
+            result = train_live.run_direct(args)
         self.assertEqual(result["status"], "unavailable")
-        self.assertEqual(result["error"]["class"], "mcp_not_configured")
+        self.assertEqual(result["error"]["class"], "network_error")
         self.assertIn("火车·12306", result["links"]["text"])
         self.assertIn("火车·携程", result["links"]["text"])
 
@@ -253,29 +259,30 @@ class TransferAndRouteTests(unittest.TestCase):
 
 class RetryTests(unittest.TestCase):
     def test_timeout_retries_once_and_rate_limit_does_not_retry(self):
-        args = args_for(mcp_command="node unused", retries=1)
-        client = mock.MagicMock()
-        client.__enter__.return_value = client
-        client.__exit__.return_value = False
-        client.server_info = {"version": "0.3.10"}
-        client.call.side_effect = [
-            train_live.QueryError("timeout", "timeout", "unavailable", True),
-            payload("direct-live.json"),
-        ]
-        with mock.patch.object(train_live, "MCPClient", return_value=client):
-            _payload, _info, attempts = train_live.call_mcp("get-tickets", {}, args)
-        self.assertEqual(attempts, 2)
-        self.assertEqual(client.call.call_count, 2)
+        args = args_for(retries=1)
+        calls = []
 
-        limited = mock.MagicMock()
-        limited.__enter__.return_value = limited
-        limited.__exit__.return_value = False
-        limited.call.side_effect = train_live.QueryError("rate_limited", "limited", "unavailable")
-        args = args_for(mcp_command="node unused", retries=2)
-        with mock.patch.object(train_live, "MCPClient", return_value=limited):
-            with self.assertRaises(train_live.QueryError):
-                train_live.call_mcp("get-tickets", {}, args)
-        self.assertEqual(limited.call.call_count, 1)
+        def flaky():
+            calls.append(1)
+            if len(calls) == 1:
+                raise train_live.QueryError("timeout", "timeout", "unavailable", True)
+            return "ok"
+
+        value, attempts = train_live.http_get_with_retry(flaky, args)
+        self.assertEqual(value, "ok")
+        self.assertEqual(attempts, 2)
+        self.assertEqual(len(calls), 2)
+
+        limited_calls = []
+
+        def limited():
+            limited_calls.append(1)
+            raise train_live.QueryError("rate_limited", "limited", "unavailable")
+
+        args = args_for(retries=2)
+        with self.assertRaises(train_live.QueryError):
+            train_live.http_get_with_retry(limited, args)
+        self.assertEqual(len(limited_calls), 1)
 
 
 class PlanCompatibilityTests(unittest.TestCase):
@@ -372,18 +379,20 @@ class PlanCompatibilityTests(unittest.TestCase):
 
 
 class InstallerTests(unittest.TestCase):
-    def test_pinned_patch_is_auditable_and_applies_once(self):
-        self.assertEqual(train_live_install.UPSTREAM_COMMIT, train_live.UPSTREAM_COMMIT)
-        self.assertRegex(train_live_install.ARCHIVE_SHA256, r"^[0-9a-f]{64}$")
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "src").mkdir()
-            source = root / "src" / "index.ts"
-            source.write_text(train_live_install.PATCH_FIND, encoding="utf-8")
-            train_live_install.apply_timeout_patch(root)
-            self.assertIn("timeout: 10000", source.read_text(encoding="utf-8"))
-        self.assertTrue(train_live_install.PATCH_PATH.exists())
+    def test_transport_metadata_matches_direct_https_lineage(self):
+        self.assertEqual(train_live.UPSTREAM_REPOSITORY, "php737/train-12306")
+        self.assertEqual(train_live.UPSTREAM_VERSION, "1.2.0")
         self.assertIn("MIT", (ROOT / "THIRD-PARTY-NOTICES.md").read_text(encoding="utf-8"))
+
+    def test_direct_live_end_to_end_offline(self):
+        """Fixture rows flow through the same normalizer as live HTTP rows."""
+        rows = json.loads(payload("direct-live.json")["content"][0]["text"])
+        args = args_for()
+        result = train_live.normalize_direct(
+            {"content": [{"type": "text", "text": json.dumps(rows, ensure_ascii=False)}]},
+            args)
+        self.assertEqual(result["status"], "live")
+        self.assertEqual(len(result["candidates"]), 3)
 
 
 if __name__ == "__main__":
