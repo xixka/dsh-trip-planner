@@ -53,7 +53,9 @@ Subcommands:
                you actually got.
   now       --lat L --lon L [--model gfs]        -> current conditions
   aqi       --lat L --lon L [--model cams-global] -> PM2.5/PM10/AQI-US etc.
-  archive   --lat L --lon L [--hours 120] [--model gfs] -> past hourly values
+  archive   --lat L --lon L [--hours 120] [--model gfs] [--raw]
+                                                    -> past hourly values
+                (temp_c/wind_kmh/gust_kmh/pressure_hpa converted; raw kept)
   alerts    --lat L --lon L [--lang zh-cn]       -> CAP warnings ([] when none;
                a 204 response is NOT an error)
   storms    [--count]                            -> active tropical cyclones
@@ -61,14 +63,17 @@ Subcommands:
                                                    -> single value / profile
   stations  --lat L --lon L                      -> nearby stations & airports
                 (wind fields: raw m/s plus wind_kmh/gust_kmh normalized)
-  obs       --source ad --id ZBAA [--count 10]   -> station obs history (also:
+  obs       --source ad --id ZBAA [--count 10] [--raw]
+                                                   -> station obs history (also:
                radiosonde | airq | pws | wmo; --source radiosonde --id 54511)
+               (temp_c/dew_point_c/wind_kmh/gust_kmh/pressure_hpa converted)
   search    --query 北京 --lat L --lon L [--types station,radiosonde]
                                                    -> place/station search
                (size >= 10 enforced by server; types omitted = all)
   route     --route "39.90,116.41;39.12,117.20" [--mode car] [--dst 2026/11/24/02]
                                                    -> weather along the route
-               (modes: car | boat | vfr | ifr; dst defaults to next UTC hour)
+               (modes: car | boat | vfr | ifr; dst defaults to next UTC hour;
+                temp_c/wind_kmh/gust_kmh converted, --raw to disable)
   celestial --lat L --lon L [--tz-hours 8]       -> sunrise/sunset/dusk; adds a
                "local" block in the target timezone (originals stay UTC)
   minifest  [--model gfs]                        -> debug: current model run
@@ -318,6 +323,71 @@ def normalize_station(st):
     return st
 
 
+def _map_units(series, fn):
+    if not isinstance(series, list):
+        return series
+    return [None if v is None else fn(v) for v in series]
+
+
+def normalize_archive(data):
+    """Convert /forecast/archive values to human units (in place).
+
+    Same schema as the point forecast but the raw endpoint returns K / Pa /
+    m/s and cmd_archive skipped the conversion; add *_c / *_hpa / *_kmh
+    columns and keep the raw arrays untouched."""
+    if not isinstance(data, dict):
+        return data
+    d = data.get("data")
+    if not isinstance(d, dict):
+        return data
+    if isinstance(d.get("temperature"), list):
+        d["temp_c"] = _map_units(d["temperature"], k_to_c)
+    for src, fn, dst in (("wind", ms_to_kmh, "wind_kmh"),
+                         ("windGust", ms_to_kmh, "gust_kmh"),
+                         ("pressure", pa_to_hpa, "pressure_hpa"),
+                         ("feelTemperature", k_to_c, "feels_c")):
+        if isinstance(d.get(src), list):
+            d[dst] = _map_units(d[src], fn)
+    return data
+
+
+def normalize_route(data):
+    """Convert /rplanner/v1/forecast values to human units (in place).
+
+    temp K -> temp_c, wind/gust m/s -> *_kmh, visibility m (as returned)."""
+    if not isinstance(data, dict):
+        return data
+    d = data.get("data")
+    if not isinstance(d, dict):
+        return data
+    if isinstance(d.get("temp"), list):
+        d["temp_c"] = _map_units(d["temp"], k_to_c)
+    for src, dst in (("wind", "wind_kmh"), ("gust", "gust_kmh")):
+        if isinstance(d.get(src), list):
+            d[dst] = _map_units(d[src], ms_to_kmh)
+    return data
+
+
+def normalize_obs(data):
+    """Convert /obs/measurement/v3 values to human units (in place).
+
+    temp/dewPoint K -> *_c, wind/gust m/s -> *_kmh, pressure Pa -> pressure_hpa;
+    raw arrays stay untouched for traceability."""
+    if not isinstance(data, dict):
+        return data
+    d = data.get("data")
+    if not isinstance(d, dict):
+        return data
+    for src, fn, dst in (("temp", k_to_c, "temp_c"),
+                         ("dewPoint", k_to_c, "dew_point_c"),
+                         ("wind", ms_to_kmh, "wind_kmh"),
+                         ("gust", ms_to_kmh, "gust_kmh"),
+                         ("pressure", pa_to_hpa, "pressure_hpa")):
+        if isinstance(d.get(src), list):
+            d[dst] = _map_units(d[src], fn)
+    return data
+
+
 def forecast_step_note(data, requested_step):
     """Record the effective sampling step (coarsest gap measured from the
     returned timestamps) in meta, with a note when the server quantized the
@@ -409,6 +479,8 @@ def cmd_archive(args):
     qs = urllib.parse.urlencode({"archiveHours": args.hours, "source": args.source})
     data = fetch_json("{}?{}".format(path, qs), kind="archive",
                       cache_key="{}|{}|{}".format(model, args.lat, args.hours))
+    if not args.raw:
+        data = normalize_archive(data)
     if isinstance(data, dict):
         data.setdefault("meta", {})["source"] = _stamp(model, ref)
     return data
@@ -619,6 +691,8 @@ def cmd_obs(args):
         return {"station": "{}-{}".format(args.source, args.id),
                 "measurements": [], "note": "no measurements (204)",
                 "meta": {"source": "Windy obs/measurement/v3"}}
+    if not getattr(args, "raw", False):
+        data = normalize_obs(data)
     return data
 
 
@@ -668,6 +742,8 @@ def cmd_route(args):
         args.mode, path_pts, urllib.parse.quote(dst, safe=""))
     data = fetch_json(path, kind="route",
                       cache_key="{}|{}|{}".format(args.mode, path_pts, dst))
+    if not getattr(args, "raw", False):
+        data = normalize_route(data)
     if isinstance(data, dict):
         data.setdefault("meta", {})["source"] = "Windy rplanner/v1"
         data["meta"]["mode"] = args.mode
@@ -710,6 +786,15 @@ def cmd_all(args):
 
 # --------------------------------------------------------------------- CLI --
 def main(argv=None):
+    # JSON output must survive redirection on CJK Windows consoles (GBK
+    # cannot encode webcams titles etc.); reconfigure stdout/stderr to
+    # UTF-8 instead of relying on PYTHONIOENCODING being set.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8")
+            except (OSError, ValueError):
+                pass
     ap = argparse.ArgumentParser(
         prog="windy_fetch.py",
         description="Windy keyless weather source for trip-planner (see docs/windy.md)")
@@ -740,6 +825,7 @@ def main(argv=None):
     add_point(p)
     p.add_argument("--hours", type=int, default=120)
     p.add_argument("--source", default="station")
+    p.add_argument("--raw", action="store_true", help="no unit conversion")
 
     p = sub.add_parser("alerts", help="CAP weather warnings ([] when none)")
     add_point(p, with_model=False)
@@ -763,6 +849,7 @@ def main(argv=None):
     p.add_argument("--count", type=int, default=10,
                    help="measurements to fetch back from latest (default 10)")
     p.add_argument("--properties", default="data,summary,segments")
+    p.add_argument("--raw", action="store_true", help="no unit conversion")
 
     p = sub.add_parser("search", help="place/station search (search/v4.1)")
     p.add_argument("--query", required=True)
@@ -778,6 +865,7 @@ def main(argv=None):
     p.add_argument("--route", required=True, help='"lat,lon;lat,lon;..."')
     p.add_argument("--mode", default="car", help="car|boat|vfr|ifr")
     p.add_argument("--dst", default=None, help="departure YYYY/MM/DD/HH (UTC)")
+    p.add_argument("--raw", action="store_true", help="no unit conversion")
 
     p = sub.add_parser("celestial", help="sunrise/sunset/dusk (services/celestial)")
     add_point(p, with_model=False)

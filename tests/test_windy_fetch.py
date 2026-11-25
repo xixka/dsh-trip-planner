@@ -71,6 +71,49 @@ class NormalizeStationTest(unittest.TestCase):
         self.assertIsNone(windy_fetch.normalize_station(None))
 
 
+class UnitNormalizationTest(unittest.TestCase):
+    """archive / route / obs endpoints return K / Pa / m/s raw; the CLI must
+    expose converted columns without destroying the raw arrays."""
+
+    def test_normalize_archive(self):
+        data = {"data": {"temperature": [286.24], "wind": [3.58],
+                         "windGust": [5.0], "pressure": [101900.0],
+                         "feelTemperature": [283.0]}}
+        windy_fetch.normalize_archive(data)
+        self.assertEqual(data["data"]["temp_c"], [13.1])
+        self.assertEqual(data["data"]["wind_kmh"], [12.9])
+        self.assertEqual(data["data"]["gust_kmh"], [18.0])
+        self.assertEqual(data["data"]["pressure_hpa"], [1019.0])
+        self.assertEqual(data["data"]["feels_c"], [9.9])
+        # raw arrays untouched
+        self.assertEqual(data["data"]["temperature"], [286.24])
+
+    def test_normalize_route(self):
+        data = {"data": {"temp": [276.5], "wind": [1.0], "gust": [3.05],
+                         "vis": [20295]}}
+        windy_fetch.normalize_route(data)
+        self.assertEqual(data["data"]["temp_c"], [3.4])
+        self.assertEqual(data["data"]["wind_kmh"], [3.6])
+        self.assertEqual(data["data"]["gust_kmh"], [11.0])
+        self.assertEqual(data["data"]["vis"], [20295])  # metres, untouched
+
+    def test_normalize_obs(self):
+        data = {"data": {"temp": [270.15], "dewPoint": [264.15],
+                         "wind": [1.0], "gust": [None], "pressure": [102900.0]}}
+        windy_fetch.normalize_obs(data)
+        self.assertEqual(data["data"]["temp_c"], [-3.0])
+        self.assertEqual(data["data"]["dew_point_c"], [-9.0])
+        self.assertEqual(data["data"]["wind_kmh"], [3.6])
+        self.assertIsNone(data["data"]["gust_kmh"][0])
+        self.assertEqual(data["data"]["pressure_hpa"], [1029.0])
+
+    def test_normalize_helpers_ignore_bad_payloads(self):
+        for payload in (None, "x", {"data": None}, {"data": "x"}, {}):
+            windy_fetch.normalize_archive(payload)
+            windy_fetch.normalize_route(payload)
+            windy_fetch.normalize_obs(payload)  # must not raise
+
+
 class ForecastStepNoteTest(unittest.TestCase):
     """--step 1 silently returns the model-native cadence; meta must say so."""
 

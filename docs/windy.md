@@ -2,7 +2,9 @@
 
 > 逆向对象：Windy Android 51.3.2（com.windyty.android，APKMirror 4arch/6dpi 构建）
 > 验证日期：2026-11-23 / 11-24（全部端点经代理实测，含北京坐标）；
-> 2026-11-25 深圳实战复核（stations/celestial/forecast 三模型）
+> 2026-11-25 全 20 子命令常见数据冒烟复测（北京/深圳，含边界：区域模型 404、
+> 闪电 60mins 404、潮汐站列表、火点 mesh、台风详情）——
+> 发现并修复 archive/route/obs 缺单位换算、GBK 控制台输出崩溃两处
 > 状态：**全部免费数据功能已逆向并实现，零遗留**（见 §1.1 功能覆盖矩阵）；
 > 配套实现 `scripts/windy_fetch.py`（20 个子命令）
 > 本文档是 Windy 数据源的权威参考；`references/data-sources.md` 的 Weather 章节只保留接入要点
@@ -218,17 +220,21 @@ forecast   --lat 39.9042 --lon 116.4074 [--model gfs] [--days 5] [--step 3]
            # meta.effective_step_hours 报告实际步长
 now        --lat --lon [--model gfs]
 aqi        --lat --lon [--model cams-global]
-archive    --lat --lon [--hours 120] [--model gfs]
+archive    --lat --lon [--hours 120] [--model gfs] [--raw]
+           # 2026-11-25 起 temp_c/wind_kmh/pressure_hpa 已换算,原数组保留
 alerts     --lat --lon [--lang zh-cn]          # [] = 无预警（204）
 storms     [--count] [--id xavier]
 lightning  [--minutes60]                       # 闪电（默认 hot 热区；60mins 波动）
 airport    --icao ZBAA [--what metar,taf,notams,adinfo]   # 机场报文
 elevation  --lat --lon  |  --route "lat,lon;lat,lon"
 route      --route "39.90,116.41;31.23,121.47" [--mode car] [--dst 2026/11/25/02]
+           # [--raw] 关闭换算;默认 temp_c/wind_kmh/gust_kmh 已换算,vis 保持米
 stations   --lat --lon                         # 附近站点/机场实况;风 m/s 原值
                                                # + wind_kmh/gust_kmh 换算值
 pois       --ident tide --lat --lon            # stations/ad/airq/radiosonde/firespots…
-obs        --source ad --id ZBAA [--count 10]  # radiosonde 54511 / airq / pws / wmo
+obs        --source ad --id ZBAA [--count 10] [--raw]
+           # radiosonde 54511 / airq / pws / wmo;默认 temp_c/dew_point_c/
+           # wind_kmh/gust_kmh/pressure_hpa 已换算,原数组保留
 search     --query "Beijing" --lat --lon [--types station,radiosonde]
 reverse    --lat --lon [--lang zh-cn]          # 逆地理编码
 webcams    --lat --lon [--radius 250]          # 附近摄像头（--id 查更新/归档）
