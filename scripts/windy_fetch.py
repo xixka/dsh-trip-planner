@@ -47,7 +47,10 @@ Subcommands:
   forecast  --lat L --lon L [--model gfs] [--days 5] [--step 3] [--raw]
             -> hourly forecast; default models: gfs (fallback chain tries
                icon-global, ecmwf-hres when a model 404s or errors, unless
-               --model is given explicitly)
+               --model is given explicitly). NOTE: each model serves its
+               native cadence (3 h for the global models) — --step 1 still
+               returns 3-hourly rows; meta.effective_step_hours records what
+               you actually got.
   now       --lat L --lon L [--model gfs]        -> current conditions
   aqi       --lat L --lon L [--model cams-global] -> PM2.5/PM10/AQI-US etc.
   archive   --lat L --lon L [--hours 120] [--model gfs] -> past hourly values
@@ -57,6 +60,7 @@ Subcommands:
   elevation --lat L --lon L  |  --route "lat,lon;lat,lon[;...]"
                                                    -> single value / profile
   stations  --lat L --lon L                      -> nearby stations & airports
+                (wind fields: raw m/s plus wind_kmh/gust_kmh normalized)
   obs       --source ad --id ZBAA [--count 10]   -> station obs history (also:
                radiosonde | airq | pws | wmo; --source radiosonde --id 54511)
   search    --query 北京 --lat L --lon L [--types station,radiosonde]
@@ -65,9 +69,12 @@ Subcommands:
   route     --route "39.90,116.41;39.12,117.20" [--mode car] [--dst 2026/11/24/02]
                                                    -> weather along the route
                (modes: car | boat | vfr | ifr; dst defaults to next UTC hour)
+  celestial --lat L --lon L [--tz-hours 8]       -> sunrise/sunset/dusk; adds a
+               "local" block in the target timezone (originals stay UTC)
   minifest  [--model gfs]                        -> debug: current model run
-  all       --lat L --lon L [--model gfs] [--lang zh-cn]
-            -> one JSON: forecast + now + aqi + alerts + storms, units converted
+  all       --lat L --lon L [--model gfs] [--lang zh-cn] [--tz-hours 8]
+            -> one JSON: forecast + now + aqi + alerts + storms + celestial,
+               units converted
 
 Exit codes: 0 = data returned (possibly an empty alerts list);
             1 = fetch/parse/network error (stderr has the reason);
@@ -83,6 +90,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -267,6 +275,75 @@ def _norm_now(payload):
     return payload
 
 
+DEFAULT_TZ_HOURS = 8  # 境内统一北京时间; celestial --tz-hours 可覆盖
+
+
+def celestial_local(data, tz_hours=DEFAULT_TZ_HOURS):
+    """Add a 'local' block with tz-aware ISO strings for the celestial fields.
+
+    Windy /services/celestial returns epoch-ms stamps plus UTC ISO strings
+    only ("night": "…T10:58:29Z"), but plans are written in the destination's
+    wall time — provide both, keep the original fields untouched."""
+    tz = timezone(timedelta(hours=tz_hours))
+    out = {}
+    for key in ("sunriseTs", "sunsetTs", "duskTs", "dawnTs"):
+        ts = data.get(key)
+        if isinstance(ts, (int, float)):
+            out[key[:-2]] = datetime.fromtimestamp(ts / 1000.0, tz).isoformat()
+    night = data.get("night")
+    if isinstance(night, str):
+        try:
+            out["night"] = datetime.fromisoformat(
+                night.replace("Z", "+00:00")).astimezone(tz).isoformat()
+        except ValueError:
+            pass
+    out["tz_hours"] = tz_hours
+    return out
+
+
+def normalize_station(st):
+    """Add wind_kmh/gust_kmh to one /pois/v2/stations entry.
+
+    Station obs report wind in m/s while point-forecast output already carries
+    km/h columns; expose both so model-vs-observation cross-checks compare
+    like with like. Original fields are left untouched."""
+    if not isinstance(st, dict):
+        return st
+    wind = st.get("wind")
+    if isinstance(wind, (int, float)):
+        st["wind_kmh"] = round(wind * 3.6, 1)
+    gust = st.get("gust")
+    if isinstance(gust, (int, float)):
+        st["gust_kmh"] = round(gust * 3.6, 1)
+    return st
+
+
+def forecast_step_note(data, requested_step):
+    """Record the effective sampling step (coarsest gap measured from the
+    returned timestamps) in meta, with a note when the server quantized the
+    requested step.
+
+    Windy serves each model at its native cadence (3 h for gfs / icon-global /
+    ecmwf-hres detail), so --step 1 silently comes back 3-hourly; make that
+    visible instead of implying hourly data. The coarsest gap is what a
+    consumer must plan around, so irregular spacing (a dropped row) also
+    surfaces."""
+    try:
+        meta = data.setdefault("meta", {})
+        ts = (data.get("data") or {}).get("ts") or []
+        if len(ts) >= 2:
+            step_ms = max(ts[i + 1] - ts[i] for i in range(len(ts) - 1))
+            hours = step_ms / 3600000.0
+            meta["effective_step_hours"] = round(hours, 2)
+            if requested_step and hours > requested_step:
+                meta["note"] = (
+                    "server returned up to {:g} h sampling for --step {} "
+                    "(model-native cadence)".format(hours, requested_step))
+    except (AttributeError, TypeError, ValueError):
+        pass
+    return data
+
+
 def _stamp(model, ref):
     return "Windy {} {}".format(model, ref or "")
 
@@ -296,6 +373,7 @@ def cmd_forecast(args):
             data = _norm_point(data)
         data.setdefault("meta", {})["source"] = _stamp(model, ref)
         data["meta"]["model"] = model
+        forecast_step_note(data, args.step)
         return data
     raise WindyError("; ".join(errors) or "no data", code=3 if errors else 1)
 
@@ -367,6 +445,7 @@ def cmd_celestial(args):
                       cache_key="{:.4f}|{:.4f}".format(args.lat, args.lon))
     if not isinstance(data, dict):
         raise WindyError("celestial returned no parsable data", code=1)
+    data["local"] = celestial_local(data, args.tz_hours)
     data.setdefault("meta", {})["source"] = "Windy services/celestial"
     return data
 
@@ -511,7 +590,10 @@ def cmd_stations(args):
     path = "/pois/v2/stations/{:.4f}/{:.4f}".format(args.lat, args.lon)
     data = fetch_json(path, kind="stations",
                       cache_key="{:.4f}|{:.4f}".format(args.lat, args.lon))
-    return {"stations": data or [], "meta": {"source": "Windy pois/v2/stations"}}
+    stations = [normalize_station(st) for st in (data or [])]
+    return {"stations": stations,
+            "meta": {"source": "Windy pois/v2/stations",
+                     "wind_units": "m/s raw + km/h normalized"}}
 
 
 def cmd_obs(args):
@@ -605,13 +687,14 @@ def cmd_all(args):
     ns = lambda **kw: argparse.Namespace(
         lat=args.lat, lon=args.lon, lang=args.lang, days=args.days,
         step=args.step, source=args.source or None, raw=False, count=False,
-        id=None, model=args.model, hours=None, **kw)
+        id=None, model=args.model, hours=None, tz_hours=args.tz_hours, **kw)
     sections = [
         ("forecast", lambda: cmd_forecast(ns())),
         ("now", lambda: cmd_now(ns())),
         ("aqi", lambda: cmd_aqi(ns())),
         ("alerts", lambda: cmd_alerts(ns())),
         ("storms", lambda: cmd_storms(ns())),
+        ("celestial", lambda: cmd_celestial(ns())),
     ]
     failed = []
     for name, fn in sections:
@@ -698,6 +781,9 @@ def main(argv=None):
 
     p = sub.add_parser("celestial", help="sunrise/sunset/dusk (services/celestial)")
     add_point(p, with_model=False)
+    p.add_argument("--tz-hours", type=int, default=DEFAULT_TZ_HOURS,
+                   help="target timezone offset for the local block "
+                        "(default +8, 境内统一北京时间)")
 
     p = sub.add_parser("lightning", help="recent lightning (blitz/v3)")
     p.add_argument("--minutes60", action="store_true",
@@ -745,6 +831,8 @@ def main(argv=None):
     p.add_argument("--days", type=int, default=5)
     p.add_argument("--step", type=int, default=3)
     p.add_argument("--source", default=None)
+    p.add_argument("--tz-hours", type=int, default=DEFAULT_TZ_HOURS,
+                   help="celestial local-block timezone offset (default +8)")
 
     args = ap.parse_args(argv)
     handlers = {"forecast": cmd_forecast, "now": cmd_now, "aqi": cmd_aqi,

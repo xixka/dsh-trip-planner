@@ -25,6 +25,7 @@
     "scripts/",
     "themes/",
     "assets/",
+    "docs/",
     ".env.example",
     "README.md",
     "LICENSE",

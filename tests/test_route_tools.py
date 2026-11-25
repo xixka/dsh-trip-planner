@@ -83,7 +83,8 @@ def plan_with_stops(modes):
 class RouteParsingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.fixtures = json.loads((ROOT / "tests/fixtures/amap_routes.json").read_text())
+        cls.fixtures = json.loads(
+            (ROOT / "tests/fixtures/amap_routes.json").read_text(encoding="utf-8"))
         cls.ca = (39.9042, 116.4074)
         cls.cb = (39.9142, 116.4174)
 
@@ -255,7 +256,7 @@ class RouteCommandTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             route_tools.cmd_routes(self.args(path))
         request.assert_not_called()
-        saved = json.loads(path.read_text())
+        saved = json.loads(path.read_text(encoding="utf-8"))
         route = saved["days"][0]["stops"][1]["route"]
         self.assertEqual(route["status"], "degraded")
         self.assertEqual(route["error"]["kind"], "cross_city_transit")
@@ -272,13 +273,13 @@ class RouteCommandTests(unittest.TestCase):
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             route_tools.cmd_routes(self.args(path))
         self.assertEqual(request.call_count, 3)
-        saved = json.loads(path.read_text())
+        saved = json.loads(path.read_text(encoding="utf-8"))
         routes = [stop.get("route") for stop in saved["days"][0]["stops"]]
         self.assertIsNone(routes[0])
         self.assertEqual([route["status"] for route in routes[1:]], ["ok", "error", "ok"])
         self.assertEqual(routes[2]["error"]["kind"], "timeout")
         self.assertEqual(saved["days"][0]["timeline"], plan["days"][0]["timeline"])
-        cache = json.loads((self.directory / "routecache.json").read_text())
+        cache = json.loads((self.directory / "routecache.json").read_text(encoding="utf-8"))
         self.assertEqual(len([key for key in cache if key.startswith(route_tools.ROUTE_CACHE_PREFIX)]), 2)
         self.assertTrue(all("test-only" not in key for key in cache))
 
@@ -323,7 +324,7 @@ class RouteCommandTests(unittest.TestCase):
                 side_effect=route_tools.RouteRequestError("qps", "fixture qps")), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             route_tools.cmd_routes(self.args(path))
-        route = json.loads(path.read_text())["days"][0]["stops"][1]["route"]
+        route = json.loads(path.read_text(encoding="utf-8"))["days"][0]["stops"][1]["route"]
         self.assertEqual(route["status"], "error")
         self.assertEqual(route["manual_note"], "保留人工备注")
         self.assertEqual(route["path"], old["path"])

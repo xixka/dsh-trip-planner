@@ -345,9 +345,11 @@ never stall silently or invent a script's output.
 - `scripts/windy_fetch.py` — **Windy 免费气象数据**(免 key 免登录,逆向接口,详见
   `docs/windy.md`): forecast/now/aqi/archive/alerts/storms/lightning/airport/
   elevation/route/stations/pois/obs/search/reverse/webcams/celestial/avalanche/
-  all 19 个子命令(机场 METAR/TAF/NOTAM、火点、雪崩、摄像头等全覆盖);多模型交叉校验(gfs/icon-global/
+  minifest/all 20 个子命令(机场 METAR/TAF/NOTAM、火点、雪崩、摄像头等全覆盖);多模型交叉校验(gfs/icon-global/
   ecmwf-hres)、AQI、CAP 预警(境外补充,境内仍 nmc.cn)、台风、路线高程与沿线
-  天气、近 5 天实况存档;单位自动换算(K→°C/Pa→hPa),windycache.json 缓存,
+  天气、近 5 天实况存档;单位自动换算(K→°C/Pa→hPa/m/s→km/h),celestial 附
+  本地时区日落块,stations 风速双单位,forecast 的 meta 报告实际步长
+  (全球模型 3 h,`--step 1` 不会变出逐时数据),windycache.json 缓存,
   `WINDY_BASE` 可换反代前缀;exit 3 = 该源无数据,静默降级回 Open-Meteo 主链。
 - `scripts/train_live.py` — 可选 12306 本地 stdio MCP 适配器(零第三方 Python 依赖):
   直达席别票价/余票、直达无票时中转、按需经停；`live` 才可增量写 legs，完整深链兜底。

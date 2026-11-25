@@ -1,9 +1,10 @@
 # Windy 免费数据源（逆向文档 + windy_fetch.py 手册）
 
 > 逆向对象：Windy Android 51.3.2（com.windyty.android，APKMirror 4arch/6dpi 构建）
-> 验证日期：2026-11-23 / 11-24（全部端点经代理实测，含北京坐标）
+> 验证日期：2026-11-23 / 11-24（全部端点经代理实测，含北京坐标）；
+> 2026-11-25 深圳实战复核（stations/celestial/forecast 三模型）
 > 状态：**全部免费数据功能已逆向并实现，零遗留**（见 §1.1 功能覆盖矩阵）；
-> 配套实现 `scripts/windy_fetch.py`（19 个子命令）
+> 配套实现 `scripts/windy_fetch.py`（20 个子命令）
 > 本文档是 Windy 数据源的权威参考；`references/data-sources.md` 的 Weather 章节只保留接入要点
 
 ---
@@ -157,6 +158,12 @@ bom-access*/can-hrdps/can-rdwps/cze-aladin/cams-eu/cmems 等。
 `pressure`（Pa）、`temperature`/`feelTemperature`（K）、`wind`/`windGust`（m/s）、
 `windDir`（°）。不同 `include` 可选 dew/cloud 等字段。
 
+**步长（实测于 2026-11-25 深圳）**：全球模型（gfs / icon-global / ecmwf-hres）
+的原生 cadence 是 **3 h**——`--step 1` 请求逐时数据仍返回 3 h 粒度（服务器
+静默量化，不报错）；`hour` 数组是**点位本地时**（深圳返回 2/5/8/11/14/17/20/23），
+时区判断一律以 `ts`（epoch ms）为准，`hour` 仅作展示。`windy_fetch.py` 现在在
+`meta.effective_step_hours` 记录实测步长，与请求步长不符时附 `meta.note`。
+
 **当前实况 `/forecast/point/now/gfs/v1.0/…`**（扁平）
 `ts`、`mm`、`rain`、`snowPrecip`、`convPrecip`、`temp`（K）、`dewPoint`、
 `wind`、`windDir`、`gust`、`pressure`（Pa）、`cbase`、`visibility`、`fog`、
@@ -165,6 +172,21 @@ bom-access*/can-hrdps/can-rdwps/cze-aladin/cams-eu/cmems 等。
 **AQI `/forecast/airq/cams-global/v3.0/…`**
 `ts`、`hour`、`isDay`、`aqiUs`、`pm2p5`、`pm10`、`no2`、`go3`、
 `chemsCosc`、`chemsDustsm`、`chemsSo2sm`。
+
+**附近站点 `/pois/v2/stations/{lat}/{lon}`**（实测于 2026-11-25 深圳）
+数组，每站：`id`（madis-*/wmo-*）、`name`、`lat`/`lon`、`dist`（**单位 km**，
+实测最近 1.739 km）、`temp`（°C）、`wind`/`gust`（**m/s**——与点预报 km/h
+口径不同）、`windDir`（°）、`rh`、`dew_point`、`qnh`（hPa）、`precip`、
+`diff`/`hAgo`/`minAgo`（观测滞后分钟数）。`windy_fetch.py` 的 `stations`
+子命令现为每站补 `wind_kmh`/`gust_kmh`（×3.6 保留 1 位小数），原始 m/s
+字段保留，`meta.wind_units` 标注双单位口径。
+
+**日出日落 `/services/celestial/{lat}/{lon}`**（实测 2026-11-25 深圳）
+`sunriseTs`/`sunsetTs`/`duskTs`（epoch ms）、`night`（**UTC ISO 串**，
+如 `2026-11-25T10:58:29.593Z`）、`isDay`、`atSea`。原始响应只给 UTC——
+`windy_fetch.py` 现附 `local` 块：四个时刻的目标时区 ISO 串（默认 `+08:00`，
+`--tz-hours` 可覆盖；`all` 组合同样带），原字段不动，`local.tz_hours` 记录
+所用偏移。
 
 **CAP 预警 `/capalerts/{lat}/{lon}?detailed=true`**
 `data[]`：`id`、`start`/`end`（epoch ms）、`ident`（国家/机构码）、`event`、
@@ -192,6 +214,8 @@ radiosonde 变体含 `trajectory[]`（lon,lat,alt,ts 气球轨迹）。
 
 ```
 forecast   --lat 39.9042 --lon 116.4074 [--model gfs] [--days 5] [--step 3]
+           # 全球模型原生步长 3 h;--step 1 仍返回 3 h 粒度,
+           # meta.effective_step_hours 报告实际步长
 now        --lat --lon [--model gfs]
 aqi        --lat --lon [--model cams-global]
 archive    --lat --lon [--hours 120] [--model gfs]
@@ -201,16 +225,18 @@ lightning  [--minutes60]                       # 闪电（默认 hot 热区；60
 airport    --icao ZBAA [--what metar,taf,notams,adinfo]   # 机场报文
 elevation  --lat --lon  |  --route "lat,lon;lat,lon"
 route      --route "39.90,116.41;31.23,121.47" [--mode car] [--dst 2026/11/25/02]
-stations   --lat --lon                         # 附近站点/机场实况
+stations   --lat --lon                         # 附近站点/机场实况;风 m/s 原值
+                                               # + wind_kmh/gust_kmh 换算值
 pois       --ident tide --lat --lon            # stations/ad/airq/radiosonde/firespots…
 obs        --source ad --id ZBAA [--count 10]  # radiosonde 54511 / airq / pws / wmo
 search     --query "Beijing" --lat --lon [--types station,radiosonde]
 reverse    --lat --lon [--lang zh-cn]          # 逆地理编码
 webcams    --lat --lon [--radius 250]          # 附近摄像头（--id 查更新/归档）
-celestial  --lat --lon                         # 日出日落（补 NOAA 本地计算）
+celestial  --lat --lon [--tz-hours 8]          # 日出日落;local 块给目标时区时刻
 avalanche  [--date 2026-11-23] [--regions]     # 雪崩危险（欧/美山区）
 minifest   [--model gfs]                       # 调试：当前批次
-all        --lat --lon [--model gfs]           # 组合单 JSON（预报+实况+AQI+预警+台风）
+all        --lat --lon [--model gfs] [--tz-hours 8]
+           # 组合单 JSON（预报+实况+AQI+预警+台风+日出日落）
 ```
 
 退出码：`0` 正常（含空预警列表）；`1` 网络/解析失败；`2` 参数错误；
