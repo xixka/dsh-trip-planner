@@ -1,0 +1,77 @@
+name: Release
+
+# When a new version is published as a GitHub Release, run the offline test
+# suite, build the installable package with `npm pack`, verify its contents,
+# and attach the tarball (plus a sha256 checksum) to that Release.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Build and upload install package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run offline test suite
+        run: |
+          node tests/plugin.test.mjs
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          python3 -m compileall -q scripts themes tests
+
+      - name: Build install package (npm pack)
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+
+      - name: Verify package contents
+        run: |
+          tgz="$(ls dist/*.tgz)"
+          echo "Built: ${tgz}"
+          # The plugin wrapper and the skill bundle must all be inside the tarball.
+          for entry in \
+            package/package.json \
+            package/index.js \
+            package/SKILL.md \
+            package/cordis.patch.yml \
+            package/icon.svg \
+            package/README.md \
+            package/locale/zh.json \
+            package/locale/en.json \
+            package/references/data-sources.md \
+            package/references/train-live.md \
+            package/scripts/route_tools.py \
+            package/scripts/train_live.py \
+            package/scripts/train_live_install.py \
+            package/scripts/train_live_patches/0001-axios-timeout.patch \
+            package/themes/render_clay2.py \
+            package/assets/plan.example.json \
+            package/.env.example; do
+            tar -tzf "${tgz}" | grep -qx "${entry}" \
+              || { echo "MISSING in tarball: ${entry}"; exit 1; }
+          done
+          echo "All required entries present."
+
+      - name: Generate sha256 checksum
+        run: |
+          cd dist
+          for f in *.tgz; do sha256sum "$f" > "$f.sha256"; done
+          ls -lh
+
+      - name: Upload package to the Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$GITHUB_REF_NAME" dist/*.tgz dist/*.sha256 --clobber

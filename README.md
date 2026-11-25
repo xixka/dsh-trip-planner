@@ -41,6 +41,13 @@ dsh plugin --profile web remove dsh-trip-planner-cn
 dsh plugin --profile web add github:ChenYiming-aaa/better-trip-planner
 ```
 
+每个正式版本（GitHub Release）都会附带 CI 构建的安装包
+`dsh-trip-planner-cn-<version>.tgz`（含 sha256 校验文件），下载后可直接本地安装：
+
+```bash
+dsh plugin --profile web add ./dsh-trip-planner-cn-0.2.0.tgz
+```
+
 ### 方式二：其他宿主（Claude Code / WorkBuddy / CodeBuddy 等）
 
 下载本仓库，放到宿主的 skills 目录并命名为 `trip-planner-cn`：
