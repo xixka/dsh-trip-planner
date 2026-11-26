@@ -61,8 +61,8 @@ the endpoint's name is; a token shared by two differently-named stops of the day
 fallback and keeps exit 0, but whenever parked > 0 the run ends with a loud stderr
 WARN block listing every parked row (day, row number, first 40 chars) — read it.
 
-Map provider (links --provider amap|baidu, default amap; overridable with env
-TRIP_MAP_PROVIDER). 本 skill 仅支持境内行程,不再提供 google/apple 链接:
+Map provider (links --provider amap|baidu, default amap; overridable with the
+mapProvider setting). 本 skill 仅支持境内行程,不再提供 google/apple 链接:
   amap    https://uri.amap.com/navigation?from=lon,lat,name&to=lon,lat,name
           &mode=walk|bus|car&src=trip-planner   (keyless; 高德)
   baidu   https://api.map.baidu.com/direction?origin=lat,lon&destination=lat,lon
@@ -80,9 +80,9 @@ later command reads the one file that has everything.
 Subcommands:
   geocode plan.geo.json       -> resolves stops in place (+ geocache.json); order:
                                  preset coords > geocache > 高德 restapi (needs
-                                 AMAP_KEY / --amap-key, GCJ-02 auto-converted back
+                                 amapKey / --amap-key, GCJ-02 auto-converted back
                                  to WGS84) > 百度 geocoding v3 (needs
-                                 BAIDU_MAP_AK / --baidu-ak); existing coordinates
+                                 baiduMapAk / --baidu-ak); existing coordinates
                                  are PRESERVED
   check   plan.geo.json       -> hop distances (straight-line), walk/transit
                                  estimates marked (est), on-foot vs ridden totals
@@ -91,13 +91,13 @@ Subcommands:
                                  on an undeclared hop >12 km, a declared walk/transit
                                  hop >60 km, or a hop with missing coordinates;
                                  --live swaps (est) for real 高德 driving/transit
-                                 minutes (needs AMAP_KEY; routecache.json cache)
+                                 minutes (needs amapKey; routecache.json cache)
   routes  plan.geo.json [--write] [--strategy 0] [--ttl 86400]
                               -> optional structured walk/transit/drive routes:
                                  metrics, explicit costs, segments and WGS84 paths.
                                  Dry-run writes nothing; --write atomically updates
                                  arriving stops' route fields + TTL routecache.json.
-                                 AMAP_KEY environment/.env only (no key CLI here).
+                                 amapKey setting only (no key CLI here).
                                  check --live and its cross-city fallback stay old.
   links   plan.geo.json [--write] [--provider amap|baidu]
                               -> per-hop map links;
@@ -106,7 +106,7 @@ Subcommands:
   kml     plan.geo.json -o trip.kml  -> numbered pins + day route lines
                                         (import into Organic Maps / 奥维互动地图等)
   poi     plan.geo.json --at 止名|纬度,经度 [--kw 地铁站|餐饮] [--radius 1000]
-                              -> 高德 place/around 周边搜索 (needs AMAP_KEY;
+                              -> 高德 place/around 周边搜索 (needs amapKey;
                                  结果为 WGS84 坐标，可直接填回 plan)
   sun     plan.geo.json [--write] [--tz auto|Area/City] [--only DATE,...] [--lang zh|en]
                               -> per-day civil dawn / sunrise / sunset computed
@@ -198,6 +198,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import trip_config
+
 UA = {"User-Agent": "trip-planner-skill/1.3 (personal trip planning script)"}
 WALK_MIN_PER_KM = 14          # tourist pace incl. lights/photos
 MAX_WALK_KM = 1.6             # beyond this, guess transit
@@ -213,9 +215,10 @@ SUN_MOVE_KM = 150.0           # first->last stop farther than this: the day move
 LONG_MODES = ("fly", "drive", "boat", "train", "bus")
 KNOWN_MODES = ("walk", "transit") + LONG_MODES
 PROVIDERS = ("amap", "baidu")
-DEFAULT_PROVIDER = os.environ.get("TRIP_MAP_PROVIDER", "amap").strip().lower()
-if DEFAULT_PROVIDER not in PROVIDERS:
-    DEFAULT_PROVIDER = "amap"
+def _default_provider():
+    """Map deep-link provider from the JSON settings (default: amap)."""
+    value = (trip_config.get("mapProvider") or "amap").strip().lower()
+    return value if value in PROVIDERS else "amap"
 
 
 def wgs84_to_gcj02(lat, lon):
@@ -531,24 +534,6 @@ def head_token_missing(query, display_name):
         return False
     return _fold(tok) not in _fold(display_name)
 
-
-def _load_dotenv():
-    """Load KEY=VALUE lines from a git-ignored .env (skill root, then CWD) into
-    os.environ WITHOUT overwriting anything already set — so AMAP_KEY can live
-    next to the skill and never inside the repo (see .gitignore: `.env`)."""
-    here = Path(__file__).resolve().parent.parent
-    for p in (here / ".env", Path.cwd() / ".env"):
-        try:
-            if not p.is_file():
-                continue
-            for line in p.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                os.environ.setdefault(k.strip(), v.strip())
-        except OSError:
-            continue
 
 
 def _geocode_amap(q, key):
@@ -1141,9 +1126,9 @@ def cmd_geocode(args):
             from_cache = bool(hit)
             if not hit:
                 amap_key = (getattr(args, "amap_key", None)
-                            or os.environ.get("AMAP_KEY") or "").strip()
+                            or trip_config.get("amapKey") or "").strip()
                 baidu_ak = (getattr(args, "baidu_ak", None)
-                            or os.environ.get("BAIDU_MAP_AK") or "").strip()
+                            or trip_config.get("baiduMapAk") or "").strip()
                 if amap_key:
                     # 境内默认:高德 restapi first (fast and reliable; result GCJ-02,
                     # converted back to WGS84 above).
@@ -1164,7 +1149,7 @@ def cmd_geocode(args):
                     # query string, and the fix is to re-query — caching null would
                     # make the retry silently impossible.
                     if not amap_key and not baidu_ak:
-                        misses.append(q + "  (未设置 AMAP_KEY — 免费申请三步见 "
+                        misses.append(q + "  (未设置 amapKey — 免费申请三步见 "
                                         "references/cn-domestic.md §5: lbs.amap.com "
                                         "注册→支付宝实名→创建应用加 Web服务 key, 然后重跑 "
                                         "geocode; 不配置也可用百度回退/手工坐标)")
@@ -1204,14 +1189,14 @@ def anchor_rows(day):
 
 def _live_setup(args):
     """Resolve `check --live` prerequisites -> (key, routecache, cache_path,
-    geocache). key is empty when --live is absent or no AMAP_KEY — the caller
+    geocache). key is empty when --live is absent or no amapKey — the caller
     then silently keeps straight-line estimates."""
     if not getattr(args, "live", False):
         return "", {}, None, {}
     key = (getattr(args, "amap_key", None)
-           or os.environ.get("AMAP_KEY") or "").strip()
+           or trip_config.get("amapKey") or "").strip()
     if not key:
-        warn("--live 需要 AMAP_KEY（免费申请三步见 references/cn-domestic.md §5）"
+        warn("--live 需要设置里的 amapKey（免费申请三步见 references/cn-domestic.md §5）"
              "或 --amap-key 传入；本次仍用直线估算")
         return "", {}, None, {}
     src = Path(args.plan)
@@ -1495,9 +1480,9 @@ def _route_failure(mode, kind, message):
 def cmd_routes(args):
     """Fetch optional structured walk/transit/drive routes, hop by hop."""
     plan = load_plan(args.plan)
-    key = (os.environ.get("AMAP_KEY") or "").strip()
+    key = (trip_config.get("amapKey") or "").strip()
     if not key:
-        warn("routes 需要 AMAP_KEY 环境变量；本次不查询、不写回，原估算和深链保持不变")
+        warn("routes 需要设置里的 amapKey；本次不查询、不写回，原估算和深链保持不变")
         return
     src = Path(args.plan)
     cache_path = src.parent / "routecache.json"
@@ -1602,9 +1587,9 @@ def cmd_poi(args):
     found metro entrance / restaurant can be pasted straight into the plan."""
     plan = load_plan(args.plan)
     key = (getattr(args, "amap_key", None)
-           or os.environ.get("AMAP_KEY") or "").strip()
+           or trip_config.get("amapKey") or "").strip()
     if not key:
-        warn("poi 需要 AMAP_KEY（免费申请三步见 references/cn-domestic.md §5: "
+        warn("poi 需要设置里的 amapKey（免费申请三步见 references/cn-domestic.md §5: "
              "lbs.amap.com 注册→支付宝实名→创建应用加 Web 服务 key），"
              "或用 --amap-key 传入")
         sys.exit(1)
@@ -1774,7 +1759,7 @@ def arrow_context(what):
 
 def cmd_links(args):
     plan = load_plan(args.plan)
-    provider = getattr(args, "provider", None) or DEFAULT_PROVIDER
+    provider = getattr(args, "provider", None) or _default_provider()
     n_wrote = n_parked = n_susp = n_long = 0
     parked_log = []      # human lines for the closing WARN (Morocco F6)
     print("map provider: {}".format(provider))
@@ -2342,7 +2327,6 @@ def cmd_ics(args):
 
 
 def main():
-    _load_dotenv()
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -2357,13 +2341,13 @@ def main():
                      "drive/fly that must say so) or missing coordinates; declared "
                      "fly/drive/boat/train/bus hops are fine. --live: real 高德 "
                      "driving/transit minutes replace the (est) for transit/drive "
-                     "hops (needs AMAP_KEY; cached in routecache.json; cross-city "
+                     "hops (needs amapKey; cached in routecache.json; cross-city "
                      "transit falls back to driving ×1.25 折算).",
             "routes": "Optional structured 高德 walk/transit/driving routes with "
                        "WGS84 paths, segments, explicit costs and TTL caching. "
                        "Dry-run by default; --write atomically adds route fields to "
-                       "arriving stops and updates routecache.json. AMAP_KEY is read "
-                       "from the environment only. Each hop fails independently; "
+                       "arriving stops and updates routecache.json. amapKey is read "
+                       "from the settings file only. Each hop fails independently; "
                        "cross-city transit keeps its estimate and old check --live "
                        "behaviour is unchanged.",
             "ics": "The gates .ics from the checklist: one VEVENT per row whose "
@@ -2402,7 +2386,7 @@ def main():
                    "--write --only DATE,... for the listed dates); 3 = a day was "
                    "REJECTED by the sanity checks (look before retrying — a polar "
                    "day/night rejection is never retried, PLN-11).",
-            "poi": "周边 POI 搜索 via 高德 place/around (needs AMAP_KEY). --at is "
+            "poi": "周边 POI 搜索 via 高德 place/around (needs amapKey). --at is "
                    "either a stop name/query from the plan (uses its geocoded "
                    "coords) or 'lat,lon' in WGS84; --kw keywords (| separates "
                    "alternatives, e.g. '地铁站|地铁出入口'), --radius metres "
@@ -2433,25 +2417,24 @@ def main():
                                 "day_map, in place, instead of only printing them; "
                                 "prints each link's origin -> destination against "
                                 "the row text and a wrote/parked/suspicious summary")
-            p.add_argument("--provider", choices=PROVIDERS, default=DEFAULT_PROVIDER,
+            p.add_argument("--provider", choices=PROVIDERS, default=None,
                            help="deep-link provider: amap (uri.amap.com, keyless — "
                                 "DEFAULT; 境内直连), baidu (api.map.baidu.com, "
-                                "keyless). Env override: TRIP_MAP_PROVIDER")
+                                "keyless). Default: the mapProvider setting")
         if name == "geocode":
             p.add_argument("--amap-key", default=None,
-                           help="高德 Web 服务 API key（地理编码）；默认读环境变量 "
-                                "AMAP_KEY（或 skill 根目录 .env）。结果自动 "
-                                "GCJ02→WGS84")
+                           help="高德 Web 服务 API key（地理编码）；默认读设置里的 "
+                                "amapKey。结果自动 GCJ02→WGS84")
             p.add_argument("--baidu-ak", default=None,
-                           help="百度地图服务端 AK（地理编码 v3 回退）；默认读环境"
-                                "变量 BAIDU_MAP_AK。结果自动 GCJ02→WGS84")
+                           help="百度地图服务端 AK（地理编码 v3 回退）；默认读设置里的 "
+                                "baiduMapAk。结果自动 GCJ02→WGS84")
         if name == "check":
             p.add_argument("--live", action="store_true",
                            help="用高德 direction API 的真实驾车/公交分钟数替代 "
-                                "(est)（需 AMAP_KEY；缓存 routecache.json；跨城"
+                                "(est)（需 amapKey；缓存 routecache.json；跨城"
                                 "公交降级为驾车×1.25 折算）")
             p.add_argument("--amap-key", default=None,
-                           help="高德 Web 服务 key；默认读 AMAP_KEY 环境变量或 .env")
+                           help="高德 Web 服务 key；默认读设置里的 amapKey")
         if name == "poi":
             p.add_argument("--at", required=True,
                            help="中心点：plan 里的 stop 名（用其已 geocode 坐标）"
@@ -2464,7 +2447,7 @@ def main():
             p.add_argument("--limit", type=int, default=10,
                            help="返回条数（默认 10，上限 25）")
             p.add_argument("--amap-key", default=None,
-                           help="高德 Web 服务 key；默认读 AMAP_KEY 环境变量或 .env")
+                           help="高德 Web 服务 key；默认读设置里的 amapKey")
         if name == "sun":
             p.add_argument("--write", action="store_true",
                            help="write day['sun'] in place (default: print only); "

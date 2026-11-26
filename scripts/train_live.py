@@ -40,6 +40,8 @@ from pathlib import Path
 
 from flight_scan import rail_links
 
+import trip_config
+
 SCHEMA_VERSION = 1
 UPSTREAM_REPOSITORY = "php737/train-12306"
 UPSTREAM_VERSION = "1.2.0"
@@ -294,9 +296,9 @@ class Rail12306Http:
 
     @staticmethod
     def _default_cache_dir():
-        base = os.environ.get("TRAIN_LIVE_CACHE_DIR")
+        base = trip_config.get("trainLiveCacheDir", "").strip()
         if base:
-            return Path(base)
+            return Path(base).expanduser()
         return Path(tempfile.gettempdir()) / "dsh-trip-planner-12306"
 
     def _log(self, message):
@@ -1406,7 +1408,8 @@ def add_common_arguments(parser, rail=True):
     parser.add_argument("--output", choices=("json", "text"), default="json")
     parser.add_argument("--verbose", action="store_true", help="stderr 输出 HTTP 调试日志")
     parser.add_argument("--cache-dir", dest="cache_dir", default=None,
-                        help="车站表/查询路径缓存目录（默认临时目录，可用 TRAIN_LIVE_CACHE_DIR 覆盖）")
+                        help="车站表/查询路径缓存目录（默认临时目录，可用设置里的 "
+                             "trainLiveCacheDir 覆盖）")
     if rail:
         parser.add_argument("--from", dest="orig", required=True, type=argparse_station,
                             help="具体出发站或电报码，不合并同城车站")

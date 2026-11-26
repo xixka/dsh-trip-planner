@@ -7,7 +7,7 @@ deep link marked "verify on click". Statuses marked ✓ were live-tested 2026-08
 > 境外服务与配方（Google/Skyscanner/Booking/Nominatim/sunrise-sunset.org/领事与外国
 > 预警/汇率换算/签证）已整体移除，不存在任何境外选项或入口。地图链接只有高德/百度
 > （`route_tools links`，默认 amap，境内坐标自动 WGS84→GCJ02 纠偏）；地理编码走高德
-> （`AMAP_KEY`）+ 百度回退（`BAIDU_MAP_AK`）；日照为本地 NOAA 天文计算（零网络）；
+> （`amapKey`）+ 百度回退（`baiduMapAk`）；日照为本地 NOAA 天文计算（零网络）；
 > 机票价格经 `flight_scan.py` 深链由用户点开核对（OTA 无免钥公开 fare API，绝不猜价）；
 > 可选：安装飞猪官方 flyai CLI（`npm i -g @fly-ai/flyai-cli`，key 可选）后
 > `scripts/flyai_provider.py` 提供只读机票/酒店参考价，遮蔽/缺失价绝不猜测，失败完整回退深链；
@@ -161,9 +161,9 @@ No good keyless API exists — use browser + deep links; recommend neighborhoods
 
 ## Geocoding & day-route sanity — ✓
 Venue-level coordinates via `scripts/route_tools.py geocode` — CN-adapted order:
-**preset coords > geocache > 高德 restapi（需 `AMAP_KEY` 环境变量或 `--amap-key`；结果
+**preset coords > geocache > 高德 restapi（需设置里的 `amapKey` 或 `--amap-key`；结果
 自动 GCJ02→WGS84 回写，计划文件里始终只存 WGS84 一种基准）> 百度 geocoding v3
-（`BAIDU_MAP_AK`）**。
+（`baiduMapAk`）**。
 高德在国内快且稳，中文地名命中率极高（key 免费申请：
 lbs.amap.com → Web 服务）；无 key 或高德失败时自动回退百度（
 缓存，脚本已内置，勿并行调用）。Misses: 在高德/百度网页版地图查地点，从链接或
@@ -232,7 +232,7 @@ holiday calendar page (timeanddate-style) for the year — and put the dates in
 ## Weather — ✓ (archive call can take ~10 s on first hit)
 **【不稳定→可用】Open-Meteo 各端点大陆均可直连**（未被封但偶有慢/超时），保留为
 默认气象源；失败或需要中文预报时的替代：**【境内可用】和风天气 QWeather**
-（dev.qweather.com，免费 key）或高德天气 API（`AMAP_KEY` 复用，仅国内城市）。
+（dev.qweather.com，免费 key）或高德天气 API（`amapKey` 复用，仅国内城市）。
 日期超出 16 天预报窗口时的历史同期/气候态仍用 Open-Meteo 的 2a/2b 两路。
 
 **【新增源 ✓ 2026-11-24】Windy（免 key 免登录，逆向接口）**：`scripts/windy_fetch.py`
@@ -321,14 +321,14 @@ AQI（cams-global，填补链路空缺）、CAP 气象预警（境外/全球补�
 - **国家预警发布** 12379 / 属地应急管理公告
 - T-14 / T-7 / T-3 阶梯各复查一次（phase-1-brief.md）。
 
-## Optional keyed upgrades (only if the user already has env vars set)
-- `AMAP_KEY` — 高德 Web 服务 key（geocode 首选源；`check --live` 实时时距、
+## Optional keyed upgrades (only if the user already has settings set)
+- `amapKey` — 高德 Web 服务 key（geocode 首选源；`check --live` 实时时距、
   `poi` 周边搜索、天气 API 均复用）。**个人开发者完全免费**；**未配置时须先向
   用户提示免费申请**（三步流程见 cn-domestic.md §5），配置前不阻塞（百度回退/
-  手工坐标）。key 只放环境变量或 git-ignored 的 `.env`，**绝不提交入库**。
+  手工坐标）。key 只存在 `~/.dsh/trip-planner/settings.json`，**绝不提交入库**。
   **CN 版推荐默认配置**。
-- `DASHSCOPE_API_KEY` — 阿里云百炼（通义万相生图），`themes/gen.py --provider
+- `dashscopeApiKey` — 阿里云百炼（通义万相生图），`themes/gen.py --provider
   dashscope` 用。
-- `SILICONFLOW_API_KEY` — 硅基流动（Kolors 生图），`themes/gen.py --provider siliconflow`。
-- `BAIDU_MAP_AK` — 百度地图开放平台 key（geocode 回退源；lbsyun.baidu.com 免费申请）。
+- `siliconflowApiKey` — 硅基流动（Kolors 生图），`themes/gen.py --provider siliconflow`。
+- `baiduMapAk` — 百度地图开放平台 key（geocode 回退源；lbsyun.baidu.com 免费申请）。
 Never ask the user to sign up for keys mid-plan; the keyless path is the default.

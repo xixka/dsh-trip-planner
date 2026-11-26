@@ -104,7 +104,7 @@ from it) so Phases 2-6 read one place and a later replan does not re-ask.
    **不调用生图**。
 2. 素材库无合适图片、且你有 **native image-generation tool** → 为本次行程定制生成，
    nothing to configure (`prefs.pictures = "native"`).
-3. 素材库无合适图片、且环境变量里已有 `DASHSCOPE_API_KEY` 或 `SILICONFLOW_API_KEY`
+3. 素材库无合适图片、且设置里已有 `dashscopeApiKey` 或 `siliconflowApiKey`
    （never read, print or copy the value）→ `gen.py` 走境内生图（dashscope 通义万相 /
    siliconflow Kolors，`"key"`）。
 4. 素材库无合适图、又没有生图能力 → 页面仍以主题页交付（illustrated 走 stock 通用图；

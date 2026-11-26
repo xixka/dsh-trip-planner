@@ -3,7 +3,9 @@
 #
 # The row needs no config: the plugin reads its own SKILL.md frontmatter at
 # activation and publishes one bundled candidate (rank 600) whose resources
-# resolve against this repository root.
+# resolve against this repository root. Settings live in
+# ~/.dsh/trip-planner/settings.json and are edited from the DSH settings panel
+# (package.json "dsh.client"); no environment variables are used.
 #
 # Requires a composition that already mounts the skill registry and the
 # filesystem provider (both ship with @deepseek-ai/dsh-base):

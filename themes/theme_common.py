@@ -25,6 +25,7 @@ import json
 import math
 import os
 import pathlib
+import sys
 
 __all__ = [
     "TAG_PRETTY", "esc", "et", "ic", "sprite", "set_icon_base",
@@ -37,6 +38,11 @@ __all__ = [
 ]
 
 HERE = pathlib.Path(__file__).parent
+
+# Shared settings live in scripts/ beside the skill root. Added defensively so
+# renderers work both from a source checkout and an installed package.
+sys.path.insert(0, str(HERE.parent / "scripts"))
+import trip_config  # noqa: E402
 
 # Asset search path for data_uri(). Later additions win; themes/assets/ (the
 # shared image library beside this file) is always the last resort.
@@ -357,22 +363,9 @@ def _wgs84_to_gcj02(lat, lon):
 
 
 def _amap_static_key():
-    """AMAP_KEY from the environment, else the skill-root .env (same loading
-    discipline as route_tools). None when absent — the map fold then stays
-    hidden, exactly like the no-key build."""
-    key = os.environ.get("AMAP_KEY")
-    if key:
-        return key.strip()
-    env = HERE.parent / ".env"
-    if env.exists():
-        try:
-            for line in env.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line.startswith("AMAP_KEY=") and not line.startswith("#"):
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-        except OSError:
-            pass
-    return ""
+    """amapKey from the shared settings file; empty when absent — the map fold
+    then stays hidden, exactly like the no-key build."""
+    return trip_config.get("amapKey", "").strip()
 
 
 def _valid_route_path(route, origin=None, destination=None):

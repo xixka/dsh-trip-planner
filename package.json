@@ -1,17 +1,25 @@
 {
   "name": "dsh-trip-planner-cn",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "DeepSeek Harness 插件外壳：把境内旅行规划 Agent Skill（trip-planner-cn）注册进 DSH 技能目录，装完即可按名加载 SKILL.md 及其 references/scripts/themes 资源。 / DeepSeek Harness plugin wrapper that registers the domestic-China trip-planning Agent Skill (trip-planner-cn) in the DSH skill catalog, with its bundled references/scripts/themes resources.",
   "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
+    "./client": "./client/index.js",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json"
   },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ],
+      "platform": "web"
     }
   },
   "icon": "./icon.svg",
@@ -26,7 +34,9 @@
     "themes/",
     "assets/",
     "docs/",
-    ".env.example",
+    "client/",
+    "lib/",
+    "settings.example.json",
     "README.md",
     "LICENSE",
     "THIRD-PARTY-NOTICES.md"
@@ -35,12 +45,16 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "test": "node tests/plugin.test.mjs && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "test": "node tests/plugin.test.mjs && node --test tests/settings.test.mjs && python3 -m unittest discover -s tests -p 'test_*.py'",
     "test:plugin": "node tests/plugin.test.mjs",
-    "test:python": "node tests/python.test.mjs"
+    "test:settings": "node --test tests/settings.test.mjs",
+    "test:python": "node tests/python.test.mjs",
+    "build": "node scripts/build.mjs",
+    "check": "npm run test && npm run build"
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-skill": ">=0.1.0-rc.1 <0.2.0-0 || >=0.1.1-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0 || >=0.2.1-rc.1 <0.3.0-0"
+    "@deepseek-ai/dsh-skill": ">=0.1.0-rc.1 <0.2.0-0 || >=0.1.1-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0 || >=0.2.1-rc.1 <0.3.0-0",
+    "react": "^18.2.0"
   },
   "keywords": [
     "dsh-plugin",
@@ -54,12 +68,12 @@
     "china-travel"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/ChenYiming-aaa/better-trip-planner",
+  "homepage": "https://github.com/xixka/dsh-trip-planner",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ChenYiming-aaa/better-trip-planner.git"
+    "url": "git+https://github.com/xixka/dsh-trip-planner.git"
   },
   "bugs": {
-    "url": "https://github.com/ChenYiming-aaa/better-trip-planner/issues"
+    "url": "https://github.com/xixka/dsh-trip-planner/issues"
   }
 }

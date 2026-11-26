@@ -1,0 +1,4 @@
+# Keep Python bytecode caches out of the installable package.
+**/__pycache__/
+**/*.pyc
+**/*.pyo

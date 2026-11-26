@@ -38,14 +38,14 @@ dsh plugin --profile web remove dsh-trip-planner-cn
 不想走 npm 也可以直接从 GitHub 仓库装：
 
 ```bash
-dsh plugin --profile web add github:ChenYiming-aaa/better-trip-planner
+dsh plugin --profile web add github:xixka/dsh-trip-planner
 ```
 
 每个正式版本（GitHub Release）都会附带 CI 构建的安装包
 `dsh-trip-planner-cn-<version>.tgz`（含 sha256 校验文件），下载后可直接本地安装：
 
 ```bash
-dsh plugin --profile web add ./dsh-trip-planner-cn-0.2.0.tgz
+dsh plugin --profile web add ./dsh-trip-planner-cn-0.3.0.tgz
 ```
 
 ### 方式二：其他宿主（Claude Code / WorkBuddy / CodeBuddy 等）
@@ -60,6 +60,27 @@ dsh plugin --profile web add ./dsh-trip-planner-cn-0.2.0.tgz
 
 运行环境只需 **Python 3.9+ 标准库**；可选安装 Pillow 用于素材流水线（`pip install pillow`）。
 
+## 设置界面
+
+DSH Web / 桌面版安装后，设置页会出现 **Trip Planner · 境内旅行规划** 卡片（苹果白色风格）。在卡片里填写高德/百度/生图/飞猪等密钥与路径，点击「保存设置」即可，不需要再配置任何环境变量。
+
+设置统一写入本机文件：
+
+```text
+~/.dsh/trip-planner/settings.json
+```
+
+- 所有脚本（`route_tools.py`、`train_live.py`、`flyai_provider.py`、`themes/`）都从这个 JSON 读取配置。
+- 密钥只保存在本机文件（权限 `0600`），不会写入仓库、日志或渲染页面。
+- 其他宿主（Claude Code / WorkBuddy 等）没有 DSH 设置页时，用命令行写入：
+
+```bash
+python3 scripts/trip_config.py set amapKey 你的高德Web服务key
+python3 scripts/trip_config.py status
+```
+
+也可以参照 [settings.example.json](settings.example.json) 手动创建该文件。配置项与缺失时的降级行为见下方 [配置（可选）](#配置可选)。
+
 ## 三十秒验证
 
 不需要任何密钥，在 skill 目录执行：
@@ -69,7 +90,7 @@ python themes/render_clay2.py examples/china-2026/china.geo.json -o china-clay.h
 python themes/qc.py china-clay.html    # 退出码 0 即通过
 ```
 
-> 未配置 `AMAP_KEY` 时渲染会提示静态地图隐藏的 WARN，属预期降级，退出码仍为 0。
+> 未配置 `amapKey` 时渲染会提示静态地图隐藏的 WARN，属预期降级，退出码仍为 0。
 
 ## 使用
 
@@ -120,26 +141,28 @@ python themes/qc.py trip-illustrated.html
 ## 核心特性
 
 - **逐小时每日计划**：营业时间、闭馆日、预约政策全部用工具核实后写入，每一跳都有高德/百度地图链接。
-- **跨城交通深链 + 可选机票/酒店/铁路实时查询**：机票/火车票日期网格翻译成携程 / Trip.com / 去哪儿 / 12306 的直达链接，价格点开链接核对，不编造；配置飞猪 flyai CLI 与 `FLYAI_API_KEY` 后可查询机票/酒店只读参考候选（价格标"查询时参考价·单源"，遮蔽价绝不猜测），`train_live.py` 零依赖直连 12306 公共端点可查直达、席别余票/票价、中转与经停（无 MCP/Node/Key/登录），失败均完整回退深链。
+- **跨城交通深链 + 可选机票/酒店/铁路实时查询**：机票/火车票日期网格翻译成携程 / Trip.com / 去哪儿 / 12306 的直达链接，价格点开链接核对，不编造；配置飞猪 flyai CLI 与 `flyaiApiKey` 后可查询机票/酒店只读参考候选（价格标"查询时参考价·单源"，遮蔽价绝不猜测），`train_live.py` 零依赖直连 12306 公共端点可查直达、席别余票/票价、中转与经停（无 MCP/Node/Key/登录），失败均完整回退深链。
 - **住宿与预算**：按片区给出酒店候选（带日期深链）、人民币预算汇总、按截止日排序的预订清单。
 - **行前简报**：应急号码、气象预警、假日调休、支付分层、离线地图准备，全部境内数据源。
 - **图片三级策略**：内置素材库优先 → 模型原生生图 → 境内生图 key（阿里云百炼 / 硅基流动），任何一档下页面都完整交付。
 
 ## 配置（可选）
 
-所有密钥均为可选；不配置任何密钥也能完成规划与渲染，只是相应能力降级。
+所有密钥均为可选；不配置任何密钥也能完成规划与渲染，只是相应能力降级。配置只来自 `~/.dsh/trip-planner/settings.json`（DSH 设置界面写入），**不再读取环境变量**。
 
-| 环境变量 | 作用 | 缺失时的行为 |
+| 设置项 | 作用 | 缺失时的行为 |
 |---|---|---|
-| `AMAP_KEY` | 高德 Web 服务 key | 静态地图隐藏，真实路线不查询，时距用估算值 |
-| `BAIDU_MAP_AK` | 百度地理编码回退 | 跳过回退 |
-| `DASHSCOPE_API_KEY` / `SILICONFLOW_API_KEY` | 境内生图 | 图片走素材库或原生能力 |
-| `TRIP_MAP_PROVIDER` | 深链服务商，`amap`（默认）或 `baidu` | 用默认高德 |
-| `TRAIN_LIVE_CACHE_DIR` | 12306 车站表/查询路径缓存目录（默认临时目录） | 缓存写在系统临时目录 |
-| `FLYAI_API_KEY` | 飞猪官方 flyai CLI 增强（可选；无 key 走体验模式，真实报价但部分受限） | 机票/酒店仅用深链与价格区间 |
-| `FLYAI_CLI` | flyai CLI 不在 PATH 时的绝对路径 | 按 PATH 上的 `flyai` 探测 |
+| `amapKey` | 高德 Web 服务 key | 静态地图隐藏，真实路线不查询，时距用估算值 |
+| `baiduMapAk` | 百度地理编码回退 | 跳过回退 |
+| `dashscopeApiKey` / `siliconflowApiKey` | 境内生图 | 图片走素材库或原生能力 |
+| `mapProvider` | 深链服务商，`amap`（默认）或 `baidu` | 用默认高德 |
+| `trainLiveCacheDir` | 12306 车站表/查询路径缓存目录（默认临时目录） | 缓存写在系统临时目录 |
+| `trainLiveMcpCommand` | 本地 12306 stdio MCP 启动命令（不是密钥） | 仅用铁路深链 |
+| `flyaiApiKey` | 飞猪官方 flyai CLI 增强（可选；无 key 走体验模式，真实报价但部分受限） | 机票/酒店仅用深链与价格区间 |
+| `flyaiCli` | flyai CLI 不在 PATH 时的绝对路径 | 按 PATH 上的 `flyai` 探测 |
+| `windyBase` / `windyCache` | Windy 接口地址与缓存文件（高级） | 默认 `node.windy.com` / `windycache.json` |
 
-**申请高德 key**：在高德开放平台（lbs.amap.com）注册并实名认证后创建应用，key 类型选「Web 服务」，个人开发者免费额度充足。拿到 key 后，在 skill 根目录建一个 `.env` 文件（参照 [.env.example](.env.example)）写入 `AMAP_KEY=你的key` 即可，脚本会自动读取。
+**申请高德 key**：在高德开放平台（lbs.amap.com）注册并实名认证后创建应用，key 类型选「Web 服务」，个人开发者免费额度充足。拿到 key 后，打开 DSH 设置页的 **Trip Planner** 卡片，填入「高德 Web 服务 Key」并保存；或执行 `python3 scripts/trip_config.py set amapKey <你的key>`。
 
 ## 命令行工具
 
@@ -156,7 +179,7 @@ python themes/qc.py trip-illustrated.html
 | `ics` | 从预订清单生成带提醒的日历文件 |
 | `poi` | 高德周边 POI 搜索 |
 
-`routes` 只从环境变量或 `.env` 读取 `AMAP_KEY`，不提供密钥命令行参数。`--write` 原子写回到达站点的可选 `route` 字段并更新带 TTL 的 `routecache.json`；`--ttl 0` 禁用结构化缓存，`--strategy` 会进入缓存键。每跳独立失败，原交通描述、价格和深链不变。跨城公交在新结构化数据中标记降级，不把驾车路线冒充公交；旧 `check --live` 的驾车 ×1.25 折算保持不变。
+`routes` 只从设置文件读取 `amapKey`，不提供密钥命令行参数。`--write` 原子写回到达站点的可选 `route` 字段并更新带 TTL 的 `routecache.json`；`--ttl 0` 禁用结构化缓存，`--strategy` 会进入缓存键。每跳独立失败，原交通描述、价格和深链不变。跨城公交在新结构化数据中标记降级，不把驾车路线冒充公交；旧 `check --live` 的驾车 ×1.25 折算保持不变。
 
 ```bash
 python scripts/route_tools.py routes plan.geo.json           # 只查询和打印，不写文件

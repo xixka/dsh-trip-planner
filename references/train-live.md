@@ -39,7 +39,7 @@ python3 scripts/train_live.py direct \
   --from 北京南 --to 上海虹桥 --date 2026-12-01
 ```
 
-车站表与查询路径缓存在临时目录（可用 `TRAIN_LIVE_CACHE_DIR` 或 `--cache-dir` 覆盖，
+车站表与查询路径缓存在临时目录（可用设置里的 `trainLiveCacheDir` 或 `--cache-dir` 覆盖，
 7 天有效）；12306 改版导致「重定向到登录页」报错时，删掉缓存目录即自动重新发现。
 `--verbose` 在 stderr 打印 HTTP 调试日志（不会进入 JSON 结果）。
 

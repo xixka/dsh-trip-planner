@@ -4,18 +4,18 @@
 Three providers (--provider, default auto-detect):
 
   dashscope    阿里云百炼 通义万相 wanx2.1-t2i-turbo (async task API).
-               Key: --api-key or env DASHSCOPE_API_KEY. 国内直连, 支持支付宝开票.
-  siliconflow  硅基流动 Kwai-Kolors/Kolors (sync API). Key: --api-key or env
-               SILICONFLOW_API_KEY. 国内直连.
+               Key: --api-key or setting dashscopeApiKey. 国内直连, 支持支付宝开票.
+  siliconflow  硅基流动 Kwai-Kolors/Kolors (sync API). Key: --api-key or setting
+               siliconflowApiKey. 国内直连.
 Two providers (--provider, default auto-detect) — 境内-only，原 OpenRouter
 路径已整体移除：
 
   dashscope    阿里云百炼 通义万相 wanx2.1-t2i-turbo (async task API).
-               Key: --api-key or env DASHSCOPE_API_KEY. 国内直连, 支持支付宝开票.
-  siliconflow  硅基流动 Kwai-Kolors/Kolors (sync API). Key: --api-key or env
-               SILICONFLOW_API_KEY. 国内直连.
+               Key: --api-key or setting dashscopeApiKey. 国内直连, 支持支付宝开票.
+  siliconflow  硅基流动 Kwai-Kolors/Kolors (sync API). Key: --api-key or setting
+               siliconflowApiKey. 国内直连.
 
-auto picks the first of: --provider flag > DASHSCOPE_API_KEY > SILICONFLOW_API_KEY.
+auto picks the first of: --provider flag > dashscopeApiKey > siliconflowApiKey.
 Costs: dashscope/siliconflow are billed on-platform, so cost is printed as n/a
 and the manifest records the model instead.
 
@@ -47,14 +47,16 @@ after a partial failure only pays for what is missing).
 import argparse
 import base64
 import json
-import os
 import pathlib
 import subprocess
 import sys
 import time
 import urllib.request
 
-HERE = pathlib.Path(__file__).parent          # credentials live here, always
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
+import trip_config  # noqa: E402
+
+HERE = pathlib.Path(__file__).parent          # theme assets live here
 ASSETS = HERE / "assets"                      # shared image library + manifest
 DASHSCOPE_T2I = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis"
 DASHSCOPE_TASK = "https://dashscope.aliyuncs.com/api/v1/tasks/{}"
@@ -183,27 +185,25 @@ def main():
                     help="print the payloads and output paths; send nothing")
     ap.add_argument("--provider", default="auto",
                     choices=["auto", "dashscope", "siliconflow"],
-                    help="image backend (default auto: DASHSCOPE_API_KEY > "
-                         "SILICONFLOW_API_KEY)")
+                    help="image backend (default auto: dashscopeApiKey > "
+                         "siliconflowApiKey)")
     ap.add_argument("--api-key", default=None,
                     help="key for --provider dashscope|siliconflow (else the "
-                         "matching env var; never printed)")
+                         "matching setting; never printed)")
     args = ap.parse_args()
     provider = args.provider
     if provider == "auto":
-        if (args.api_key or os.environ.get("DASHSCOPE_API_KEY")):
+        if (args.api_key or trip_config.get("dashscopeApiKey")):
             provider = "dashscope"
         else:
             provider = "siliconflow"
     api_key = None
     if provider in ("dashscope", "siliconflow"):
-        api_key = args.api_key or os.environ.get(
-            "DASHSCOPE_API_KEY" if provider == "dashscope" else "SILICONFLOW_API_KEY")
+        setting = "dashscopeApiKey" if provider == "dashscope" else "siliconflowApiKey"
+        api_key = args.api_key or trip_config.get(setting)
         if not api_key:
-            raise SystemExit("--provider {}: set --api-key or the {} env var"
-                             .format(provider,
-                                     "DASHSCOPE_API_KEY" if provider == "dashscope"
-                                     else "SILICONFLOW_API_KEY"))
+            raise SystemExit("--provider {}: set --api-key or the {} setting"
+                             .format(provider, setting))
     outdir = args.outdir
     jobs = json.loads(pathlib.Path(args.jobs).read_text())
     if args.dry_run:
@@ -216,8 +216,8 @@ def main():
             print(json.dumps({"prompt": job["prompt"],
                               "aspect_ratio": job.get("aspect_ratio", "1:1")},
                              ensure_ascii=False, indent=2))
-        cred = ("env DASHSCOPE_API_KEY/--api-key" if provider == "dashscope"
-                else "env SILICONFLOW_API_KEY/--api-key")
+        cred = ("dashscopeApiKey/--api-key" if provider == "dashscope"
+                else "siliconflowApiKey/--api-key")
         print(f"\n{len(jobs)} job(s); credentials would be read from {cred}")
         return
     outdir.mkdir(parents=True, exist_ok=True)

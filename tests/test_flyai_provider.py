@@ -17,6 +17,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import flyai_provider as fp  # noqa: E402
 
+
+def settings_patch(values):
+    """Point flyai_provider at a fixed settings dict (no env vars)."""
+    return mock.patch.object(
+        fp.trip_config, "get",
+        side_effect=lambda key, default=None: values.get(key, default))
+
+
 FIXTURES = ROOT / "tests" / "fixtures" / "flyai"
 OLD_PLAN = json.loads((FIXTURES / "old-plan.json").read_text(encoding="utf-8"))
 QUERIED_AT = "2026-11-23T12:00:00+08:00"
@@ -300,7 +308,7 @@ class FallbackAndSafetyTests(unittest.TestCase):
         completed = subprocess.CompletedProcess(
             [], 0, stdout=json.dumps({"demoMode": False, "offers": []}),
             stderr="")
-        with mock.patch.dict("os.environ", {"FLYAI_API_KEY": "secret-key-123"}):
+        with settings_patch({"flyaiApiKey": "secret-key-123"}):
             with mock.patch.object(fp.shutil, "which",
                                    return_value="/usr/local/bin/flyai"):
                 with mock.patch.object(fp.subprocess, "run",
@@ -315,7 +323,7 @@ class FallbackAndSafetyTests(unittest.TestCase):
         self.assertEqual(run.call_args[1]["shell"], False)
 
     def test_timeout_retries_once_and_rate_limit_does_not(self):
-        with mock.patch.dict("os.environ", {"FLYAI_API_KEY": "k"}):
+        with settings_patch({"flyaiApiKey": "k"}):
             with mock.patch.object(fp.shutil, "which", return_value="flyai"):
                 with mock.patch.object(
                         fp.subprocess, "run",
@@ -329,7 +337,7 @@ class FallbackAndSafetyTests(unittest.TestCase):
 
         rate_limited = subprocess.CompletedProcess(
             [], 429, stdout="", stderr="HTTP 429 Too Many Requests")
-        with mock.patch.dict("os.environ", {"FLYAI_API_KEY": "k"}):
+        with settings_patch({"flyaiApiKey": "k"}):
             with mock.patch.object(fp.shutil, "which", return_value="flyai"):
                 with mock.patch.object(fp.subprocess, "run",
                                        return_value=rate_limited) as run2:
@@ -341,7 +349,7 @@ class FallbackAndSafetyTests(unittest.TestCase):
     def test_error_never_leaks_stderr_or_key(self):
         broken = subprocess.CompletedProcess(
             [], 1, stdout="", stderr="boom secret-key-123")
-        with mock.patch.dict("os.environ", {"FLYAI_API_KEY": "secret-key-123"}):
+        with settings_patch({"flyaiApiKey": "secret-key-123"}):
             with mock.patch.object(fp.shutil, "which", return_value="flyai"):
                 with mock.patch.object(fp.subprocess, "run", return_value=broken):
                     args = flights_args()
@@ -524,21 +532,21 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(report["cli"]["found"], False)
         self.assertEqual(report["exit_code"], 2)
         self.assertIn("深链", json.dumps(report, ensure_ascii=False))
-        self.assertFalse(report["env"]["FLYAI_API_KEY"])
+        self.assertFalse(report["settings"]["flyaiApiKey"])
 
     def test_doctor_reports_key_presence_without_the_value(self):
-        with mock.patch.dict("os.environ", {"FLYAI_API_KEY": "secret-key-123"}):
+        with settings_patch({"flyaiApiKey": "secret-key-123"}):
             with mock.patch.object(fp.shutil, "which", return_value=None):
                 args = fp.build_parser().parse_args(["doctor"])
                 report = fp.run_doctor(args)
         dumped = json.dumps(report, ensure_ascii=False)
         self.assertNotIn("secret-key-123", dumped)
-        self.assertTrue(report["env"]["FLYAI_API_KEY"])
+        self.assertTrue(report["settings"]["flyaiApiKey"])
 
     def test_signature_mismatch_is_reported_not_silent(self):
         completed = subprocess.CompletedProcess(
             [], 0, stdout="flyai 1.2.3\nusage: flyai [--config C]\n", stderr="")
-        with mock.patch.dict("os.environ", {"FLYAI_API_KEY": "k"}):
+        with settings_patch({"flyaiApiKey": "k"}):
             with mock.patch.object(fp.shutil, "which", return_value="flyai"):
                 with mock.patch.object(fp.subprocess, "run",
                                        return_value=completed):

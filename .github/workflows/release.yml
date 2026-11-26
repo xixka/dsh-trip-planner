@@ -28,13 +28,12 @@ jobs:
       - name: Run offline test suite
         run: |
           node tests/plugin.test.mjs
+          node --test tests/settings.test.mjs
           python3 -m unittest discover -s tests -p 'test_*.py'
           python3 -m compileall -q scripts themes tests
 
-      - name: Build install package (npm pack)
-        run: |
-          mkdir -p dist
-          npm pack --pack-destination dist
+      - name: Build install package (npm pack + verify)
+        run: npm run build
 
       - name: Verify package contents
         run: |
@@ -44,6 +43,9 @@ jobs:
           for entry in \
             package/package.json \
             package/index.js \
+            package/lib/settings.js \
+            package/client/index.js \
+            package/settings.example.json \
             package/SKILL.md \
             package/cordis.patch.yml \
             package/icon.svg \
@@ -53,12 +55,11 @@ jobs:
             package/references/data-sources.md \
             package/references/train-live.md \
             package/scripts/route_tools.py \
+            package/scripts/trip_config.py \
             package/scripts/train_live.py \
-            package/scripts/train_live_install.py \
-            package/scripts/train_live_patches/0001-axios-timeout.patch \
             package/themes/render_clay2.py \
             package/assets/plan.example.json \
-            package/.env.example; do
+            package/settings.example.json; do
             tar -tzf "${tgz}" | grep -qx "${entry}" \
               || { echo "MISSING in tarball: ${entry}"; exit 1; }
           done

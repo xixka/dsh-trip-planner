@@ -90,7 +90,7 @@ Windy Android 是 **Capacitor 混合应用**：原生壳 + 内嵌完整 Web 端 
   `windy_fetch.py` 已自动换算为 °C / hPa / m/s(+km/h)。
 - **数据标注**：按 `data-sources.md` 的既定规范，每条天气行都要盖来源戳
   ——`… · Windy gfs 2026-11-24T12:00:00Z`。
-- **境内直连**：node.windy.com 大陆可直连性未验证；`WINDY_BASE` 环境变量可
+- **境内直连**：node.windy.com 大陆可直连性未验证；设置里的 `windyBase` 可
   整体换前缀（如自建反代 `https://your-proxy/https://node.windy.com`）。
 - **限流自律**：非官方端点，必须走缓存（模块自带 windycache.json），禁止并发
   批量抓取；User-Agent 已声明用途。
@@ -230,8 +230,8 @@ radiosonde 变体含 `trajectory[]`（lon,lat,alt,ts 气球轨迹）。
 
 ## 5. windy_fetch.py 使用手册
 
-`scripts/windy_fetch.py`（Python 3.9+ 纯标准库）。环境变量：`WINDY_BASE`
-（默认 `https://node.windy.com`，可换反代前缀）、`WINDY_CACHE`
+`scripts/windy_fetch.py`（Python 3.9+ 纯标准库）。设置项（`~/.dsh/trip-planner/settings.json`）：`windyBase`
+（默认 `https://node.windy.com`，可换反代前缀）、`windyCache`
 （默认 `./windycache.json`）。
 
 ```

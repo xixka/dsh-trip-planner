@@ -20,6 +20,8 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
+import { createSettingsHandler } from "./lib/settings.js";
+
 /** Skill name registered in the catalog. Kept equal to the `name` frontmatter. */
 export const SKILL_NAME = "trip-planner-cn";
 
@@ -176,5 +178,29 @@ export function apply(ctx) {
 			return { ...summary, content: parseSkillDocument(raw, locator).content };
 		}
 	};
+	// Web profile: mount the settings API next to the skill. The client half
+	// (package.json "dsh.client") registers the Apple-white settings card in
+	// the DSH settings shell. Both halves are optional — a CLI/headless profile
+	// still gets the skill and keeps reading ~/.dsh/trip-planner/settings.json.
+	if (typeof ctx.get === "function") {
+		const webServer = ctx.get("webServer", false);
+		if (webServer !== undefined && webServer !== null && typeof webServer.register === "function") {
+			const register = () => webServer.register({
+				kind: "prefix",
+				path: "/trip-planner",
+				handler: createSettingsHandler()
+			});
+			if (typeof ctx.effect === "function") {
+				ctx.effect(() => {
+					const unregister = register();
+					return () => {
+						if (typeof unregister === "function") unregister();
+					};
+				}, "dsh-trip-planner-cn: settings routes");
+			} else {
+				register();
+			}
+		}
+	}
 	return ctx.skills.registerProvider(() => provider);
 }

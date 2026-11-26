@@ -4,10 +4,10 @@
 No third-party Python packages, no login, no browser, no booking, no passenger
 information. The official Fliggy CLI (@fly-ai/flyai-cli, MIT, published by the
 alibaba-flyai organization) is invoked read-only with a safe argument array
-(never a shell string); FLYAI_API_KEY is optional (the CLI works without it in
-体验模式, which the adapter reports honestly as ``demo``-restricted but with
-real prices) and is passed through the environment only — it never appears in
-argv, logs, fixtures or rendered output. Without the CLI, on any query failure,
+(never a shell string); the flyai API key is optional (the CLI works without
+it in 体验模式, which the adapter reports honestly as ``demo``-restricted but
+with real prices) and is read from the shared JSON settings file — it never
+appears in argv, logs, fixtures or rendered output. Without the CLI, on any query failure,
 the result is ``unavailable`` plus the existing flight_scan deep links — the
 plan, its estimates and its manual verification stay untouched.
 
@@ -50,10 +50,12 @@ from pathlib import Path
 
 from flight_scan import flight_links
 
+import trip_config
+
 SCHEMA_VERSION = 1
 CLI_NAME = "flyai"
-CLI_ENV_OVERRIDE = "FLYAI_CLI"
-CLI_KEY_ENV = "FLYAI_API_KEY"
+CLI_SETTING_OVERRIDE = "flyaiCli"
+CLI_KEY_SETTING = "flyaiApiKey"
 CLI_UPSTREAM = "alibaba-flyai/flyai-skill"
 CLI_PACKAGE = "@fly-ai/flyai-cli"
 CLI_VERIFIED_VERSION = "1.0.16"
@@ -123,28 +125,9 @@ def argparse_text(label, max_len=40):
     return wrapper
 
 
-def _load_dotenv():
-    """Load KEY=VALUE lines from a git-ignored .env (skill root, then CWD) into
-    os.environ WITHOUT overwriting anything already set — mirrors
-    route_tools._load_dotenv so FLYAI_API_KEY can live next to the skill and
-    never inside the repo, the argv or a log line."""
-    here = Path(__file__).resolve().parent.parent
-    for path in (here / ".env", Path.cwd() / ".env"):
-        try:
-            if not path.is_file():
-                continue
-            for line in path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                os.environ.setdefault(key.strip(), value.strip())
-        except OSError:
-            continue
-
-
 def api_key_present():
-    return bool(os.environ.get(CLI_KEY_ENV, "").strip())
+    """Whether the flyai key is configured (value never leaves settings)."""
+    return bool(trip_config.get(CLI_KEY_SETTING, "").strip())
 
 
 def fallback_links_flights(orig, dest, depart, adults=1):
@@ -255,17 +238,22 @@ def extract_json(stdout):
 
 def run_cli(base_argv, args):
     """Run the flyai CLI once with a safe argv array. Returns parsed stdout JSON.
-    The API key is only ever inherited through the environment; stderr is read
-    for classification but never returned or printed."""
+    The API key is read from the shared settings file and handed to the CLI via
+    its environment (never argv); stderr is read for classification but never
+    returned or printed."""
     executable = shutil.which(args.cli)
     if executable is None:
         raise QueryError("cli_not_found",
-                         "flyai CLI was not found on PATH (set --cli or {})".format(CLI_ENV_OVERRIDE),
+                         "flyai CLI was not found on PATH (set --cli or {})".format(CLI_SETTING_OVERRIDE),
                          "unavailable")
     argv = [executable] + list(base_argv)
+    env = os.environ.copy()
+    api_key = trip_config.get(CLI_KEY_SETTING, "").strip()
+    if api_key:
+        env["FLYAI_API_KEY"] = api_key
     try:
         completed = subprocess.run(
-            argv, shell=False, cwd=None,
+            argv, shell=False, cwd=None, env=env,
             timeout=args.timeout, capture_output=True, text=True,
             encoding="utf-8", errors="replace",
         )
@@ -1183,7 +1171,6 @@ def run_doctor(args):
     """Environment health check. Never sends a query, never prints the key,
     only its presence. Checks that the real CLI signature matches the adapter's
     assumed template (flights/hotels + --format json)."""
-    _load_dotenv()
     report = {
         "schema_version": SCHEMA_VERSION,
         "python": "{}.{}.{}".format(*sys.version_info[:3]),
@@ -1194,10 +1181,10 @@ def run_doctor(args):
             "signature_check": {"flights": False, "hotels": False, "format_json": False},
             "help_head": None,
         },
-        "env": {
-            CLI_KEY_ENV: api_key_present(),
-            "env_files": [str(p) for p in (Path(__file__).resolve().parent.parent / ".env",
-                                           Path.cwd() / ".env") if p.is_file()],
+        "settings": {
+            CLI_KEY_SETTING: api_key_present(),
+            "flyaiCli": trip_config.get(CLI_SETTING_OVERRIDE) or CLI_NAME,
+            "settingsPath": str(trip_config.settings_path()),
         },
         "capabilities": {"flights": "unavailable", "hotels": "unavailable"},
         "notes": [],
@@ -1232,11 +1219,11 @@ def run_doctor(args):
                     "必要时修订 scripts/flyai_provider.py 的模板常量")
     if api_key_present():
         report["notes"].append(
-            "{} 已设置: 解锁完整服务".format(CLI_KEY_ENV))
+            "{} 已设置: 解锁完整服务".format(CLI_KEY_SETTING))
     else:
         report["notes"].append(
             "{} 未设置: 官方 CLI 以体验模式运行(真实报价, 部分结果受限), "
-            "适配器如实标记 systemMessage".format(CLI_KEY_ENV))
+            "适配器如实标记 systemMessage".format(CLI_KEY_SETTING))
     live_capable = report["cli"]["found"]
     if live_capable:
         report["capabilities"] = {"flights": "live-capable", "hotels": "live-capable"}
@@ -1268,7 +1255,7 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
 
     def common(subparser):
-        subparser.add_argument("--cli", default=os.environ.get(CLI_ENV_OVERRIDE, CLI_NAME),
+        subparser.add_argument("--cli", default=trip_config.get(CLI_SETTING_OVERRIDE) or CLI_NAME,
                                help="flyai 可执行文件名或绝对路径(默认 flyai)")
         subparser.add_argument("--timeout", type=float, default=30.0,
                                help="每次 CLI 调用超时秒数")
@@ -1331,7 +1318,6 @@ def build_parser():
 
 
 def main(argv=None):
-    _load_dotenv()
     args = build_parser().parse_args(argv)
     if args.timeout is not None and not (0 < args.timeout <= 120):
         build_parser().error("--timeout must be > 0 and <= 120")

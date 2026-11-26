@@ -34,6 +34,9 @@ const manifest = JSON.parse(await readFile(new URL("package.json", root), "utf8"
 check("package.json declares dsh.bundle.patch", manifest.dsh?.bundle?.patch === "./cordis.patch.yml", String(manifest.dsh?.bundle?.patch));
 check("bundle patch exists", await exists("cordis.patch.yml"));
 check("exports cover locale/*.json", Object.keys(manifest.exports ?? {}).includes("./locale/*.json"));
+check("exports cover the browser client", Object.keys(manifest.exports ?? {}).includes("./client"));
+check("dsh.client injects the settings shell", Array.isArray(manifest.dsh?.client?.inject) && manifest.dsh.client.inject.includes("@deepseek-ai/dsh-client-ui-settings"));
+check("files[] ships client/ and lib/", (manifest.files ?? []).includes("client/") && (manifest.files ?? []).includes("lib/"));
 check("icon declared and inside the package", typeof manifest.icon === "string" && await exists(manifest.icon));
 check("files[] ships SKILL.md and references/", (manifest.files ?? []).includes("SKILL.md") && (manifest.files ?? []).includes("references/"));
 check("@deepseek-ai/dsh-skill is a peerDependency, not a dependency", Boolean(manifest.peerDependencies?.["@deepseek-ai/dsh-skill"]) && manifest.dependencies === undefined);
@@ -76,6 +79,11 @@ const resources = [
 	"assets/plan.example.json",
 	"references/flyai.md",
 	"scripts/flyai_provider.py",
+	"scripts/trip_config.py",
+	"scripts/build.mjs",
+	"lib/settings.js",
+	"client/index.js",
+	"settings.example.json",
 ];
 for (const rel of resources) {
         check(`resource resolves: ${rel}`, await exists(rel));

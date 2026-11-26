@@ -15,10 +15,12 @@ trips/
 # are the compressed webp variants, so gen/ stays out everywhere.
 **/gen/
 
-# Secrets — AMAP_KEY etc. (.env.example is the tracked placeholder, .env is not)
+# Secrets — settings live in ~/.dsh/trip-planner/settings.json; keep any
+# accidental local copy out of git. Legacy .env files are ignored too.
+settings.json
+**/settings.json
 .env
 **/.env
-!**/.env.example
 secrets/
 *.key
 
@@ -35,8 +37,9 @@ themes/.auth_header
 themes/.payload.json
 themes/**/*.png
 
-# npm pack output — a local `npm pack` artifact should never land in the repo
+# npm pack output — local build artifacts never land in the repo
 *.tgz
+dist/
 
 # Windy response cache (generated during live smoke tests)
 windycache.json

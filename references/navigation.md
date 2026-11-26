@@ -98,8 +98,8 @@
    count and simply get no link (a declared `train`/`bus` under 100 km still gets a transit link) (the script says so per row) — do **not** answer
    that note by adding `map:false`, or every pairing after it shifts.
 2. `python3 scripts/route_tools.py geocode plan.geo.json` — 境内双源：高德 restapi
-   优先（`AMAP_KEY` / `--amap-key`，GCJ02 结果自动回算 WGS84），无 key 或高德失败
-   自动回退百度 geocoding v3（`BAIDU_MAP_AK`，结果同样回算 WGS84）。脚本内置缓存
+   优先（`amapKey` / `--amap-key`，GCJ02 结果自动回算 WGS84），无 key 或高德失败
+   自动回退百度 geocoding v3（`baiduMapAk`，结果同样回算 WGS84）。脚本内置缓存
    （`geocache.json`），逐站打印解析结果——命中错误城市一眼可见。中文地名在高德
    命中率极高；命中后脚本按查询头 token（前 2 个汉字）比对显示名，不含则 **WARN**
    ——WARN 意为"人工核对"，不是报错。A miss is usually a bad query string:
@@ -126,9 +126,10 @@
    — upgrade real minutes to structured walk / transit / drive routes. The legacy
    `_amap_direction_minutes` and `check --live` paths are unchanged, and `check`
    never writes route fields into the plan. `routes` is a dry-run until `--write`;
-   without `AMAP_KEY` it leaves the plan, estimates and deep links untouched. It
-   deliberately has no `--amap-key` argument: use the environment or git-ignored
-   `.env`, never a command line, fixture, cache, log or HTML file.
+   without `amapKey` it leaves the plan, estimates and deep links untouched. It
+   deliberately has no `--amap-key` argument: use the shared settings file
+   (`~/.dsh/trip-planner/settings.json`), never a command line, fixture, cache,
+   log or HTML file.
    - Requests convert WGS84→GCJ-02; returned polylines are converted back before
      writing. Walk / drive candidates and transit alternatives are filtered for
      usable fields and ranked by the requested strategy (fare / transfers / walking
@@ -206,8 +207,8 @@
 
 ## Link recipes（境内 — route_tools 默认输出）
 
-默认 provider 是 **amap**（可用 `--provider` 或环境变量
-`TRIP_MAP_PROVIDER` 切换 baidu）。
+默认 provider 是 **amap**（可用 `--provider` 或设置里的
+`mapProvider` 切换 baidu）。
 
 - Single hop（amap 默认）:
   `https://uri.amap.com/navigation?from={lon},{lat},{名称}&to={lon},{lat},{名称}&mode=walk|bus|car&src=trip-planner-cn`

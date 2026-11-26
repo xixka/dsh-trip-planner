@@ -105,7 +105,7 @@ Gates — these decide pass/fail and do not move into the reference file:
 - **The picture-strategy check runs silently before styles are mentioned**: 素材库
   优先——先用 `themes/assets/stock`（含逐日匹配的 `stock_art.py`）为行程选图，**素材库
   有合适图片就直接用，不调用生图**；仅当素材库无合适图片 **且** 模型自身具备生图能力
-  （或用户已配 `DASHSCOPE_API_KEY`/`SILICONFLOW_API_KEY`）时，才为本次行程定制生成。
+  （或用户已在设置里配 `dashscopeApiKey`/`siliconflowApiKey`）时，才为本次行程定制生成。
   **任何情况下都不向用户解释图片来源或生图能力**——"图片来自内置素材库""本次未接入
   生图能力"这类说明禁止出现在页面和聊天回复里。
   无生图能力且素材库无合适图时仍交付主题页（illustrated 或 clay 走 stock 通用图）；
@@ -350,7 +350,7 @@ never stall silently or invent a script's output.
   天气、近 5 天实况存档;单位自动换算(K→°C/Pa→hPa/m/s→km/h),celestial 附
   本地时区日落块,stations 风速双单位,forecast 的 meta 报告实际步长
   (全球模型 3 h,`--step 1` 不会变出逐时数据),windycache.json 缓存,
-  `WINDY_BASE` 可换反代前缀;exit 3 = 该源无数据,静默降级回 Open-Meteo 主链。
+  `windyBase` 可换反代前缀;exit 3 = 该源无数据,静默降级回 Open-Meteo 主链。
 - `scripts/train_live.py` — 可选 12306 直连实时查询(零依赖零安装,纯标准库 urllib):
   直达席别票价/余票、直达无票时中转、按需经停;匿名公共端点(无 MCP/Node/Key/登录),
   传输层参考 php737/train-12306 1.2.0 (MIT,2026-11-14 核验);`live` 才可增量写 legs,
@@ -362,23 +362,25 @@ never stall silently or invent a script's output.
   无 CLI/失败时完整回退 flight_scan 深链;仅 live 可增量写计划
   (legs 增 flight_live,hotels 增 options[].flyai),budget 不重复。
   契约 2026-11-25 真机实测(`references/flyai.md` 有 schema/状态表)。
-- `scripts/route_tools.py` — geocode stops(高德优先 `AMAP_KEY`/`--amap-key`,自动
-  GCJ02→WGS84;百度回退 `BAIDU_MAP_AK`/`--baidu-ak`), distance-check clustering, emit
+- `scripts/trip_config.py` — 共享 JSON 设置（`~/.dsh/trip-planner/settings.json`，由 DSH
+  设置界面写入；`status` 只显示是否已配置，绝不回显密钥；`set KEY VALUE` 供其他宿主使用）。
+- `scripts/route_tools.py` — geocode stops(高德优先 `amapKey`/`--amap-key`,自动
+  GCJ02→WGS84;百度回退 `baiduMapAk`/`--baidu-ak`), distance-check clustering, emit
   per-hop map links and the trip KML; subcommands geocode / check (`--live` 用高德
   direction API 真实驾车/公交分钟数替代 (est),缓存 routecache.json,跨城公交降级
   驾车×1.25 折算) / routes (可选结构化步行/公交/驾车路线,默认干跑,`--write`
-  原子写到达站点 route,WGS84 path+segments+明确费用,TTL 缓存;key 仅环境/.env;
+  原子写到达站点 route,WGS84 path+segments+明确费用,TTL 缓存;key 仅设置文件;
   单跳失败隔离,旧 check 行为与人工结果不变) / links / kml / ics (the gates `.ics` from the checklist's dated
   rows — `-o gates.ics`, bump `--sequence` on every plan change) /
   poi (周边 POI 搜索 `--at 止名|纬度,经度 --kw 地铁站|餐饮 --radius`,结果 WGS84
   坐标可直接填回 plan;需 key) /
-  **未配置 AMAP_KEY 时先向用户提示免费申请**（cn-domestic.md §5 三步，个人免费，
-  不阻塞流程；key 存环境变量或 git-ignored 的 `.env`，绝不入库）/
+  **未配置 amapKey 时先向用户提示免费申请**（cn-domestic.md §5 三步，个人免费，
+  不阻塞流程；key 存 `~/.dsh/trip-planner/settings.json`，绝不入库）/
   sun (civil dawn + sunrise/sunset per day, **本地 NOAA 天文计算零网络**,境内统一北京
   时间自动兜底; written into `days[].sun` in the canonical format; point = first stop,
   last stop on a moving day, or the day's `sun_stop` when set; non-zero exit = a day
   was skipped/rejected). links 的深链 provider 默认 **amap**(`--provider baidu` 或
-  env `TRIP_MAP_PROVIDER` 可换;仅 amap/baidu 两种)。
+  设置里的 `mapProvider` 可换;仅 amap/baidu 两种)。
 - `scripts/render_plan.py` — turn the plan JSON into the final self-contained HTML.
   It reads the same file route_tools does, so write the plan once and render often.
 - `scripts/plan_lint.py` — the plan's **content** gate, run with `--strict` before any

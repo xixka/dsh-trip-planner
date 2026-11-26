@@ -35,13 +35,13 @@ This script converts to °C / hPa and keeps m/s plus a km/h helper field.
 Stamps: every output carries meta.source like "Windy gfs 2026-11-22T12:00:00Z"
 because data-sources.md requires every weather line to be stamped with mode+date.
 
-Environment:
-  WINDY_BASE   base URL, default https://node.windy.com (set to a proxy prefix
+Settings (shared JSON file, see scripts/trip_config.py):
+  windyBase    base URL, default https://node.windy.com (set to a proxy prefix
                such as https://your-proxy/https://node.windy.com when 境内直连
                is slow or blocked)
-  WINDY_CACHE  cache file (minifest + responses), default windycache.json in CWD;
+  windyCache   cache file (minifest + responses), default windycache.json in CWD;
                minifest TTL 30 min, forecasts TTL 60 min, alerts/elevation 10 min.
-               Set WINDY_CACHE="" to disable.
+               Set windyCache="" to disable.
 
 Subcommands:
   forecast  --lat L --lon L [--model gfs] [--days 5] [--step 3] [--raw]
@@ -92,7 +92,6 @@ Politeness: responses are cached, requests are sequential, timeouts are short
 
 import argparse
 import json
-import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
@@ -100,8 +99,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-BASE = (os.environ.get("WINDY_BASE") or "https://node.windy.com").rstrip("/")
-CACHE_PATH = os.environ.get("WINDY_CACHE", "windycache.json")
+import trip_config
+
+BASE = (trip_config.get("windyBase") or "https://node.windy.com").rstrip("/")
+CACHE_PATH = trip_config.get("windyCache") or "windycache.json"
 CACHE_TTL = {"minifest": 1800, "forecast": 3600, "now": 600, "aqi": 3600,
              "archive": 3600, "alerts": 600, "storms": 600, "elevation": 600,
              "stations": 600, "obs": 600, "search": 600, "route": 600, "celestial": 3600,

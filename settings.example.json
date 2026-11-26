@@ -1,0 +1,13 @@
+{
+  "amapKey": "你的高德 Web 服务 key",
+  "baiduMapAk": "",
+  "dashscopeApiKey": "",
+  "siliconflowApiKey": "",
+  "mapProvider": "amap",
+  "trainLiveCacheDir": "",
+  "trainLiveMcpCommand": "",
+  "flyaiApiKey": "",
+  "flyaiCli": "",
+  "windyBase": "https://node.windy.com",
+  "windyCache": "windycache.json"
+}

@@ -204,7 +204,7 @@ manual: references/themes.md.
       不用 `as-of`）: every bookable line has a link that carries
       its dates and a disambiguated place; hotel rows state check-in→check-out dates.
 - [ ] `trip-<theme>.html` rendered through the Phase 0 theme; `themes/qc.py` exited 0;
-  embedded maps remain PNG/data URIs, with no AMAP_KEY, restapi request URL or
+  embedded maps remain PNG/data URIs, with no amapKey, restapi request URL or
   external map script; routeless/partial maps carry the required sketch note;
       the export probe PNG or the page in a browser was looked at (none available → the
       summary says so).

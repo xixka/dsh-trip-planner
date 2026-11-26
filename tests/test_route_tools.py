@@ -2,7 +2,6 @@ import contextlib
 import copy
 import io
 import json
-import os
 from pathlib import Path
 import sys
 import tempfile
@@ -21,6 +20,13 @@ import qc
 import render_plan
 import route_tools
 import theme_common
+
+
+def settings_patch(values):
+    """Point route_tools' shared settings at a fixed dict (no env vars)."""
+    return mock.patch.object(
+        route_tools.trip_config, "get",
+        side_effect=lambda key, default=None: values.get(key, default))
 
 
 class FakeResponse:
@@ -231,10 +237,10 @@ class RouteCommandTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.directory = Path(self.temp.name)
-        self.env = mock.patch.dict(os.environ, {"AMAP_KEY": "test-only"}, clear=False)
+        self.settings = settings_patch({"amapKey": "test-only"})
 
     def tearDown(self):
-        self.env.stop()
+        self.settings.stop()
         self.temp.cleanup()
 
     def write_plan(self, plan):
@@ -252,7 +258,7 @@ class RouteCommandTests(unittest.TestCase):
             "站0, 北京": {"citycode": "010"},
             "站1, 北京": {"citycode": "021"},
         }), encoding="utf-8")
-        with self.env, mock.patch.object(route_tools, "_amap_direction_route") as request, \
+        with self.settings, mock.patch.object(route_tools, "_amap_direction_route") as request, \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             route_tools.cmd_routes(self.args(path))
         request.assert_not_called()
@@ -265,7 +271,7 @@ class RouteCommandTests(unittest.TestCase):
     def test_single_failure_does_not_block_other_hops_or_clear_manual_fields(self):
         plan = plan_with_stops(["walk", "walk", "walk"])
         path = self.write_plan(plan)
-        with self.env, mock.patch.object(
+        with self.settings, mock.patch.object(
                 route_tools, "_amap_direction_route",
                 side_effect=[success_route(minutes=7),
                              route_tools.RouteRequestError("timeout", "fixture timeout"),
@@ -287,7 +293,7 @@ class RouteCommandTests(unittest.TestCase):
         plan = plan_with_stops(["walk"])
         path = self.write_plan(plan)
         before = path.read_bytes()
-        with self.env, mock.patch.object(route_tools, "_amap_direction_route", return_value=success_route()), \
+        with self.settings, mock.patch.object(route_tools, "_amap_direction_route", return_value=success_route()), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             route_tools.cmd_routes(self.args(path, write=False))
         self.assertEqual(path.read_bytes(), before)
@@ -297,7 +303,7 @@ class RouteCommandTests(unittest.TestCase):
         plan = plan_with_stops(["walk"])
         path = self.write_plan(plan)
         before = path.read_bytes()
-        with mock.patch.dict(os.environ, {}, clear=True), \
+        with settings_patch({}), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             route_tools.cmd_routes(self.args(path, write=True))
         self.assertEqual(path.read_bytes(), before)
@@ -308,7 +314,7 @@ class RouteCommandTests(unittest.TestCase):
         path = self.write_plan(plan)
         before = path.read_bytes()
         args = SimpleNamespace(plan=str(path), live=True, amap_key=None)
-        with self.env, mock.patch.object(route_tools, "_live_dur", return_value="~8 min (高德公交实时)"), \
+        with self.settings, mock.patch.object(route_tools, "_live_dur", return_value="~8 min (高德公交实时)"), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             route_tools.cmd_check(args)
         self.assertEqual(path.read_bytes(), before)
@@ -319,7 +325,7 @@ class RouteCommandTests(unittest.TestCase):
         old["manual_note"] = "保留人工备注"
         plan["days"][0]["stops"][1]["route"] = old
         path = self.write_plan(plan)
-        with self.env, mock.patch.object(
+        with self.settings, mock.patch.object(
                 route_tools, "_amap_direction_route",
                 side_effect=route_tools.RouteRequestError("qps", "fixture qps")), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -404,7 +410,7 @@ class RenderAndLintTests(unittest.TestCase):
                       "error": {"kind": "timeout"}},
         })
         theme_common._STATICMAP_CACHE.clear()
-        with mock.patch.dict(os.environ, {"AMAP_KEY": "test-only"}, clear=False), \
+        with settings_patch({"amapKey": "test-only"}), \
              mock.patch("urllib.request.urlopen", return_value=FakeResponse(b"\x89PNG\r\nfixture", raw=True)) as request:
             uri = theme_common.day_embed_url(day)
         self.assertTrue(uri.startswith("data:image/png;base64,"))
@@ -418,14 +424,14 @@ class RenderAndLintTests(unittest.TestCase):
     def test_static_map_without_path_retains_old_polyline_and_hides_without_key(self):
         day = plan_with_stops(["walk"])["days"][0]
         theme_common._STATICMAP_CACHE.clear()
-        with mock.patch.dict(os.environ, {"AMAP_KEY": "test-only"}, clear=False), \
+        with settings_patch({"amapKey": "test-only"}), \
              mock.patch("urllib.request.urlopen", return_value=FakeResponse(b"\x89PNG\r\nfixture", raw=True)) as request:
             theme_common.day_embed_url(day)
         url = request.call_args[0][0].full_url
         self.assertIn("paths=8,0x1E6FFF,0.85,,", url)
         self.assertNotIn("|paths=", url)
         self.assertIn("站点连线示意", theme_common.day_map_note_html(day))
-        with mock.patch.dict(os.environ, {}, clear=True):
+        with settings_patch({}):
             self.assertEqual(theme_common.day_embed_url(day), "")
 
     def test_static_map_error_log_does_not_include_key_or_url(self):
@@ -435,7 +441,7 @@ class RenderAndLintTests(unittest.TestCase):
             "https://restapi.amap.com/v3/staticmap?key=test-only", 500,
             "fixture", {}, None)
         stderr = io.StringIO()
-        with mock.patch.dict(os.environ, {"AMAP_KEY": "test-only"}, clear=False), \
+        with settings_patch({"amapKey": "test-only"}), \
              mock.patch("urllib.request.urlopen", side_effect=error), contextlib.redirect_stderr(stderr):
             self.assertEqual(theme_common.day_embed_url(day), "")
         self.assertNotIn("test-only", stderr.getvalue())

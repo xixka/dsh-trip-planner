@@ -58,17 +58,16 @@
 
 **高德开放平台对个人开发者完全免费**（支付宝扫码实名认证后，地理编码/路径规划/
 POI 搜索/天气查询均在个人免费配额内——行程规划类用量绰绰有余；只有商用大规模
-调用才需要购买配额包）。**检测到未配置 `AMAP_KEY` 时，在首次 geocode 前向用户
+调用才需要购买配额包）。**检测到未配置 `amapKey` 时，在首次 geocode 前向用户
 提示本节三步**；用户配置前流程不阻塞（百度回退/手工坐标仍可出计划）。
 
 1. 打开 [lbs.amap.com](https://lbs.amap.com) → 右上角"控制台" → 注册/登录
    （短信即可）→ **个人开发者认证：支付宝扫码**，提交即过；
 2. 控制台 → 应用管理 → **创建新应用**（名称随意，类型选"出行"）→ 该应用下
    **添加 Key** → 服务平台务必选 **「Web 服务」**（不是 JS API/Android）→ 提交；
-3. 复制生成的 Key，写入环境变量并重开终端：
-   `setx AMAP_KEY <你的key>`（Windows）/ `export AMAP_KEY=<你的key>`（macOS/Linux）。
-   也可写入 skill 根目录的 `.env`（`AMAP_KEY=<你的key>` 一行即可，route_tools 自动
-   读取；该文件已被 .gitignore 排除——仓库里有可复制的 `.env.example` 模板）。
+3. 复制生成的 Key，打开 DSH 设置页的 **Trip Planner** 卡片，填入「高德 Web 服务 Key」
+   并保存（写入 `~/.dsh/trip-planner/settings.json`）。没有 DSH 设置页时执行：
+   `python3 scripts/trip_config.py set amapKey <你的key>`。
 
 注意：Web 服务 key 与 JS API key 不通用，选错类型会鉴权失败；key 是私密凭据，
 **不要**提交进仓库或写进计划文件/文档（新 key 试运行期间可能偶发

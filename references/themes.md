@@ -200,7 +200,7 @@ add every new theme to its `THEMES` list or the chooser silently falls behind.
    it has one (no key; same specs/prompts, then the same split/cutout/webp/manifest
    steps — ART-SCHEMA.md §Generator choice)**, otherwise `python3 themes/gen.py <trip>/jobs.json --outdir
    <trip> --manifest <trip>/manifest.<trip>.json`（境内生图 provider：`--provider
-   dashscope` 通义万相 / `--provider siliconflow` Kolors，key 走环境变量）(`--dry-run` first; small parts go
+   dashscope` 通义万相 / `--provider siliconflow` Kolors，key 走设置文件）(`--dry-run` first; small parts go
    on a **sheet** — one image cut into 6–12 pieces by `split_sheet.py`, ~$0.005 each;
    `--probe` first, then names in the prompt's Row 1 → Row 2 order; recipe and the
    full command forms in ART-SCHEMA.md §Image toolchain), then `cutout.py` for every
@@ -235,8 +235,8 @@ Phase 0's **picture-strategy check** writes one of the values into the plan's
    image-generation tool → generate this trip's art
    with it; nothing to configure, no key. Same specs, same prompts-as-style-anchors, same
    four downstream steps (ART-SCHEMA.md §Generator choice). §3 steps 2-3 as written.
-3. **`key`** — same precondition, 环境变量里已有 `DASHSCOPE_API_KEY` 或
-   `SILICONFLOW_API_KEY`（never
+3. **`key`** — same precondition, 设置里已有 `dashscopeApiKey` 或
+   `siliconflowApiKey`（never
    read, print or copy the value）→ `gen.py` 走境内生图（dashscope/siliconflow）。§3 steps 2-3.
 
 无论落在哪一档，页面与聊天回复都**不得出现任何图片来源或能力说明**。`stock` 模式：
@@ -538,7 +538,7 @@ images never `loading=lazy`; itinerary grids never `grid-auto-flow:dense`.
 
 - **Map embed（境内版·高德静态图）**: 原配方是无 key 的境外地图嵌入 iframe
   （大陆访客打不开，已整体移除，不要在任何主题里恢复嵌入 iframe 的路径）。现行方案：
-  `theme_common.day_embed_url` 渲染时用 `AMAP_KEY` 调 restapi.amap.com/v3/staticmap，
+  `theme_common.day_embed_url` 渲染时用 `amapKey` 调 restapi.amap.com/v3/staticmap，
   把每天途经点（WGS84→GCJ02）画成 720×340 PNG（编号标记+连线，zoom 双轴自适应），
   base64 烙进 HTML——离线可看、key 绝不进成品页、外链白名单不变；无 key 或取图失败
   时静默回退隐藏折叠块。`routes --write` 提供到达站点 `route.path` 后，各跳使用

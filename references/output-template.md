@@ -183,7 +183,7 @@ byte-identical) — it is a note the planning agent leaves for itself.
 - `pictures` ∈ `stock|native|key|custom` — how the pictures were produced (Phase 0's
   picture-strategy check, **素材库优先**): 内置素材库有合适图 → `stock`（不生成）·
   素材库无合适图且模型有原生生图 → `native` · 境内生图渠道（阿里云百炼 dashscope 或
-  硅基流动 siliconflow 的 key，放在环境变量，never read or printed）→ `key` ·
+  硅基流动 siliconflow 的 key，放在设置文件，never read or printed）→ `key` ·
   行程目录里放定制生成的图片 → `custom`。它只决定 Phase 6 的 art 文件怎么建——
   **任何取值下都不向用户解释图片来源或能力**。
 - `travel_style` ∈ `public|self-drive|group-tour|mixed` (default `public`) — Phase 2
@@ -227,7 +227,7 @@ missing, no image generator in the session):
 6. 偏好:城市 · 自然风光 · 湖泊 · 雪山 · 古镇 —— 默认按目的地定
 7. 人数 / 预算 / 节奏:默认 2 成人 · 中档 · 每天 3 个主要点
 
-ℹ️ 本次会话没有生图能力,页面会用内置插画素材(仍是成品页,只是不如定制图贴合);有阿里云百炼或硅基流动的 key 的话放进环境变量再告诉我,就能为这趟生成。
+ℹ️ 本次会话没有生图能力,页面会用内置插画素材(仍是成品页,只是不如定制图贴合);有阿里云百炼或硅基流动的 key 的话在设置页填好再告诉我,就能为这趟生成。
 💡 回「默认」= 全部按默认,直接开工。
 ```
 
